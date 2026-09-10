@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
+<!-- No external resources are loaded; the only network access is fetch() to the user-configured server. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src http: https:; img-src blob: data:"/>
 <title>ChattyLAN</title>
 <style>
 :root{
