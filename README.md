@@ -5,10 +5,21 @@
 > adequate care: don't paste sensitive data into it, and review the code before
 > trusting it with anything important.
 
-A minimal, single-file web UI for chatting with a local LLM server on your LAN.
-No backend, no build step, no dependencies — just one `index.html`.
-
+A minimal web UI for chatting with a local LLM server on your LAN.
 Works with any **OpenAI-compatible** server: LM Studio, Unsloth Studio, llama.cpp `llama-server` (and friends like Ollama).
+
+## Two ways to use it
+
+| | **Mode 1 — single file** | **Mode 2 — login & multi-user** |
+|---|---|---|
+| What you run | just `index.html` | `docker compose up -d --build` (or plain `node server.js`) |
+| Setup | none — open the file or serve it statically | one Docker container on your NAS |
+| Users | 1 (your browser) | up to 10, each with username + password |
+| Where history lives | your browser's `localStorage` | on the server, per user (`./data`) |
+| Best for | personal use, quick testing | a shared NAS that several people use |
+
+Both modes share the same UI and features; Mode 2 simply adds an account system
+around it. The app detects automatically which mode it's in — no configuration needed.
 
 ![ChattyLAN demo](Demo.png)
 
@@ -23,10 +34,12 @@ Works with any **OpenAI-compatible** server: LM Studio, Unsloth Studio, llama.cp
 - **Context usage bar**: shows estimated token usage of the current chat vs. the model's context length (read from `/v1/models`), turns yellow at 70% and red at 90%, with a warning near/over the limit
 - Optional API key and system prompt, both persisted
 - Minimal offline markdown rendering (code blocks, inline code, bold/italic, links)
+- **Mode 2 only:** username + password login, per-user chat history stored on the
+  server, up to 10 users by default (see below)
 
-## Run it
+## Mode 1 — single file (no login)
 
-Any static file server works:
+Just open `index.html`. Any static file server works:
 
 ```sh
 cd ChattyLAN
@@ -35,7 +48,63 @@ python3 -m http.server 8000
 ```
 
 You can also just double-click `index.html` and open it directly — the servers allow
-cross-origin requests by default, so `file://` works too.
+cross-origin requests by default, so `file://` works too. History lives in your
+browser's `localStorage`.
+
+## Mode 2 — login & multi-user (Docker / NAS)
+
+The recommended way to share ChattyLAN with other people on your network.
+One container, no dependencies, no build step beyond the image build:
+
+```sh
+cd ChattyLAN
+cp .env.example .env   # optional — set DATA_KEY / INITIAL_USER etc. (gitignored)
+docker compose up -d --build
+# → open http://<nas-ip>:8080 and create your first account
+```
+
+On a **Synology** NAS: *Container Manager → Project → Add*, point it at this folder
+(it picks up `docker-compose.yml` automatically). The image is plain `node:alpine`,
+so any Docker-capable NAS works. Chat data persists in `./data` (a volume), so
+upgrades and container rebuilds don't lose anything.
+
+On first visit you create an account (or pre-create one via `INITIAL_USER` /
+`INITIAL_PASSWORD` in `.env`); registration stays open until 10 accounts exist,
+then closes automatically. Each user gets their own settings and chat history,
+stored under `./data/users/`.
+
+<details>
+<summary><b>No Docker?</b> Run the backend directly with Node.js (≥ 18)</summary>
+
+```sh
+cd ChattyLAN
+node server.js            # → open http://localhost:80
+```
+
+Same behavior, same env vars — data goes to `./data` next to `server.js`.
+</details>
+
+When running via Docker, these are read from a `.env` file next to
+`docker-compose.yml` — copy `.env.example` to `.env` and fill it in (`.env` is
+gitignored, so secrets never end up in the repo). Useful environment variables:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PORT` / `HOST` | `80` / `0.0.0.0` | listen address |
+| `DATA_DIR` | `./data` | where users/sessions/chat data are stored |
+| `MAX_USERS` | `10` | registration cap |
+| `SESSION_DAYS` | `7` | login session lifetime |
+| `DATA_KEY` | off | if set, per-user chat data is encrypted at rest (AES-256-GCM) |
+| `ALLOW_REGISTER` | on | set to `0` to disable self-registration |
+| `INITIAL_USER` / `INITIAL_PASSWORD` | — | pre-create an account on first boot (password ≥ 8 chars) |
+| `FORCE_SECURE` | off | set to `1` if TLS is terminated in front of the server |
+
+Security notes: passwords are hashed with scrypt (per-user salt, constant-time
+compare), sessions use random 256-bit tokens in `HttpOnly; SameSite=Lax` cookies,
+and there's a per-IP lockout after 5 failed logins. Set `DATA_KEY` to encrypt chat
+data at rest (AES-256-GCM); without it the per-user data files are plain JSON.
+This is "simple yet secure" for a trusted LAN — it is not hardened against
+internet exposure (put it behind TLS if you do that).
 
 ## Server notes
 
@@ -51,9 +120,12 @@ same machine.
 
 ## Data & privacy
 
-Everything (settings + chat history) lives in your browser's `localStorage` under
-the keys `chatty.settings`, `chatty.chats`, `chatty.active`. Nothing leaves your LAN
-except the chat requests themselves. Clearing site data wipes the history.
+- **Mode 2** (Docker / `server.js`): settings + chat history are stored per user
+  under `DATA_DIR/users/<user>.json`. Nothing leaves your LAN except the chat
+  requests themselves. Deleting a user's file wipes their data. Set `DATA_KEY`
+  to encrypt these files at rest (AES-256-GCM); by default they are plain JSON.
+- **Mode 1** (static hosting / `file://`): everything lives in your browser's
+  `localStorage` under the keys `chatty.settings`, `chatty.chats`, `chatty.active`.
 
 Note: `localStorage` is per browser *and* per origin (`file://` vs `http://localhost:8000`
 are different stores), and has a ~5–10 MB quota. If it fills up, the app shows a warning

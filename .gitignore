@@ -1,0 +1,5 @@
+# Runtime data (users, sessions, per-user chat history) — never commit this
+data/
+
+# Environment files (e.g. DATA_KEY, INITIAL_PASSWORD)
+.env

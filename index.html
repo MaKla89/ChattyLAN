@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<!-- No external resources are loaded; the only network access is fetch() to the user-configured server. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src http: https:; img-src blob: data:"/>
+<!-- No external resources are loaded; network access is fetch() to the user-configured server, plus same-origin /api/* calls when served by server.js. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' http: https:; img-src blob: data:"/>
 <title>ChattyLAN</title>
 <style>
 :root{
@@ -40,7 +40,11 @@ header input{background:var(--panel2);border:1px solid var(--border);color:var(-
 #baseUrl{width:280px}
 #apiKey{width:150px}
 #sysPrompt{flex:1;min-width:180px}
-#status{font-size:12px;color:var(--muted);margin-left:auto;display:flex;align-items:center;gap:6px;white-space:nowrap}
+#rightSide{margin-left:auto;display:flex;align-items:center;gap:8px}
+#userChip{display:none;align-items:center;gap:2px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:4px 4px 4px 10px;font-size:12.5px;color:var(--text)}
+#userChip button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:2px 5px;border-radius:4px}
+#userChip button:hover{color:var(--err)}
+#status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;white-space:nowrap}
 #status .dot{width:8px;height:8px;border-radius:50%;background:#555;display:inline-block}
 #status.ok .dot{background:var(--ok)}
 #status.err .dot{background:var(--err)}
@@ -128,6 +132,23 @@ button.send.stop{background:#7f2d36}
 .emptyIcon{font-size:34px;line-height:1;opacity:.85}
 .emptyTitle{font-weight:700;color:var(--text);font-size:15px;letter-spacing:.3px}
 @media(max-width:760px){#sidebar{width:150px}#model{width:140px}}
+#authScreen{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:16px}
+.authCard{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:28px 26px;width:100%;max-width:340px;display:flex;flex-direction:column;gap:12px;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.authCard .logo{font-weight:700;font-size:18px;letter-spacing:.3px;display:flex;align-items:center;gap:8px}
+.authCard .logo::before{content:"";width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#8b5cf6);box-shadow:0 0 8px rgba(76,141,255,.6)}
+.authSub{margin:0;color:var(--muted);font-size:13px}
+#authForm{display:flex;flex-direction:column;gap:10px}
+#authForm input{background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:9px 10px;font-size:14px}
+#authForm input:focus{outline:none;border-color:var(--accent)}
+.authErr{min-height:16px;color:var(--err);font-size:12.5px}
+#authSubmit{background:var(--accent);border:none;color:#fff;border-radius:7px;padding:9px;font-size:14px;cursor:pointer}
+#authSubmit:hover{background:var(--accent2)}
+#authSubmit:disabled{opacity:.6;cursor:default}
+.authAlt{display:flex;flex-direction:column;gap:6px;align-items:center}
+.authLink{background:none;border:none;color:var(--accent);font-size:12.5px;cursor:pointer;padding:0}
+.authLink:hover{text-decoration:underline}
+.authLink:disabled{color:var(--muted);cursor:default;text-decoration:none}
+.authNote{color:var(--muted);font-size:11.5px}
 </style>
 </head>
 <body>
@@ -138,8 +159,24 @@ button.send.stop{background:#7f2d36}
     <div id="modelDrop" class="modelDrop"></div>
   </div>
   <button id="settingsBtn" title="Server settings">⚙</button>
-  <span id="status"><span class="dot"></span><span id="statusText">not connected</span></span>
+  <span id="rightSide">
+    <span id="userChip"><span id="userName"></span><button id="logoutBtn" title="Log out">↩</button></span>
+    <span id="status"><span class="dot"></span><span id="statusText">not connected</span></span>
+  </span>
 </header>
+<div id="authScreen">
+  <div class="authCard">
+    <div class="logo">ChattyLAN</div>
+    <p class="authSub" id="authSub">Sign in to your account</p>
+    <form id="authForm" data-mode="login">
+      <input id="authUser" placeholder="username" autocomplete="username" spellcheck="false" required/>
+      <input id="authPass" type="password" placeholder="password" autocomplete="current-password" required/>
+      <div class="authErr" id="authErr"></div>
+      <button type="submit" id="authSubmit">Sign in</button>
+    </form>
+    <div class="authAlt" id="authAlt"></div>
+  </div>
+</div>
 <div id="settingsPanel">
   <label>Server URL<input id="baseUrl" placeholder="http://192.168.1.50:1234/v1" spellcheck="false"/></label>
   <label>API key<input id="apiKey" type="password" placeholder="API key (opt.)"/></label>
@@ -172,20 +209,132 @@ button.send.stop{background:#7f2d36}
 const $=s=>document.querySelector(s);
 const LS={settings:'chatty.settings',chats:'chatty.chats',active:'chatty.active'};
 
-let settings=load(LS.settings,{baseUrl:'',apiKey:'',model:'',systemPrompt:''});
-let chats=load(LS.chats,[]);
-let activeId=localStorage.getItem(LS.active)||null;
+let settings={baseUrl:'',apiKey:'',model:'',systemPrompt:''};
+let chats=[];
+let activeId=null;
 let models=[];
 let streaming=false,aborter=null;
 
+/* ---------- auth + storage (server-backed when available, localStorage fallback) ---------- */
+let serverMode=false;      // true once /api/me confirms a session
+let loggedInUser=null;     // display name
+let regOpenFlag=true,maxUsersFlag=10;
+let saveTimer=null;
 function load(k,d){try{const v=JSON.parse(localStorage.getItem(k));return v??d}catch{return d}}
-function save(){
+function loadLocalData(){
+  settings=load(LS.settings,{baseUrl:'',apiKey:'',model:'',systemPrompt:''});
+  chats=load(LS.chats,[]);
+  activeId=localStorage.getItem(LS.active)||null;
+}
+function lsSave(){
   try{
     localStorage.setItem(LS.settings,JSON.stringify(settings));
     localStorage.setItem(LS.chats,JSON.stringify(chats));
     if(activeId)localStorage.setItem(LS.active,activeId);
   }catch(e){
     showError('Browser storage is full or unavailable \u2014 changes are NOT being saved. Export chats to file (\u2B07 / MD) or delete old ones.');
+  }
+}
+function save(){
+  if(serverMode){
+    clearTimeout(saveTimer);
+    saveTimer=setTimeout(pushData,600);
+  }else lsSave();
+}
+async function pushData(){
+  try{await fetch('api/data',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings,chats,activeId})})}
+  catch(e){showError('Could not save to server \u2014 changes are only in this browser tab for now.')}
+}
+function bindValues(){
+  $('#baseUrl').value=settings.baseUrl||'';
+  $('#model').value=settings.model||'';
+  $('#apiKey').value=settings.apiKey||'';
+  $('#sysPrompt').value=settings.systemPrompt||'';
+}
+
+/* ---------- auth screen ---------- */
+const authForm=$('#authForm'),authErr=$('#authErr'),authAlt=$('#authAlt');
+function showAuth(){$('#authScreen').style.display='flex'}
+function hideAuth(){$('#authScreen').style.display='none'}
+function setAuthMode(mode){
+  authForm.dataset.mode=mode;
+  $('#authSubmit').textContent=mode==='login'?'Sign in':'Create account';
+  $('#authSub').textContent=mode==='login'?'Sign in to your account':'Create a new account';
+  authErr.textContent='';
+  renderAuthAlt();
+}
+function renderAuthAlt(){
+  const mode=authForm.dataset.mode||'login';
+  authAlt.innerHTML='';
+  if(mode==='login'){
+    const a=document.createElement('button');a.type='button';a.className='authLink';
+    a.textContent=regOpenFlag?'No account yet? Create one':'Registration is closed \u2014 sign in instead';
+    a.disabled=!regOpenFlag;
+    if(regOpenFlag)a.onclick=()=>setAuthMode('register');
+    authAlt.appendChild(a);
+  }else{
+    const n=document.createElement('span');n.className='authNote';
+    n.textContent='Up to '+maxUsersFlag+' users \u00B7 registration closes when the limit is reached.';
+    const b=document.createElement('button');b.type='button';b.className='authLink';
+    b.textContent='Already have an account? Sign in';
+    b.onclick=()=>setAuthMode('login');
+    authAlt.appendChild(n);authAlt.appendChild(b);
+  }
+}
+async function apiJSON(url,method,body){
+  const res=await fetch(url,{method,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});
+  let j={};try{j=await res.json()}catch{}
+  if(!res.ok)throw new Error(j.error||('HTTP '+res.status));
+  return j;
+}
+async function loadServerData(){
+  const j=await apiJSON('api/data','GET');
+  settings={baseUrl:j.settings?.baseUrl||'',apiKey:j.settings?.apiKey||'',model:j.settings?.model||'',systemPrompt:j.settings?.systemPrompt||''};
+  chats=Array.isArray(j.chats)?j.chats:[];
+  activeId=j.activeId||null;
+}
+async function doAuth(){
+  const u=$('#authUser').value.trim(),p=$('#authPass').value;
+  authErr.textContent='';
+  $('#authSubmit').disabled=true;
+  try{
+    const mode=authForm.dataset.mode||'login';
+    const j=await apiJSON(mode==='login'?'api/login':'api/register','POST',{username:u,password:p});
+    loggedInUser=j.user;serverMode=true;
+    await loadServerData();
+    hideAuth();showUserChip();bindValues();
+    if(!chats.length)newChat();else if(!activeChat())activeId=chats[0].id;
+    renderChatList();renderMessages();fetchModels();updateCtxBar();
+  }catch(e){authErr.textContent=e.message}
+  finally{$('#authSubmit').disabled=false}
+}
+function showUserChip(){$('#userName').textContent=loggedInUser||'';$('#userChip').style.display='flex'}
+async function logout(){
+  try{await fetch('api/logout',{method:'POST'})}catch{}
+  serverMode=false;loggedInUser=null;models=[];
+  $('#userChip').style.display='none';
+  setAuthMode('login');showAuth();
+  loadLocalData();bindValues();
+  if(!chats.length)newChat();else if(!activeChat())activeId=chats[0].id;
+  renderChatList();renderMessages();fetchModels();updateCtxBar();
+}
+async function initAuth(){
+  let status=null;
+  if(location.protocol!=='file:'){ // fetch() doesn't work on file:// at all
+    try{status=await apiJSON('api/status','GET')}catch{}
+  }
+  if(!status){ // no backend (file:// or plain static hosting) -> original local mode
+    hideAuth();loadLocalData();return;
+  }
+  regOpenFlag=!!status.canRegister;maxUsersFlag=status.maxUsers||10;
+  renderAuthAlt();
+  try{
+    const me=await apiJSON('api/me','GET');
+    loggedInUser=me.user;serverMode=true;
+    await loadServerData();
+    hideAuth();showUserChip();
+  }catch{
+    showAuth(); // server present, not logged in -> stay on the login screen
   }
 }
 
@@ -458,7 +607,7 @@ function renderMessages(){
     const ti=document.createElement('div');ti.className='emptyTitle';ti.textContent='ChattyLAN';
     const tx=document.createElement('div');
     tx.textContent=settings.baseUrl
-      ?'Ask anything \u2014 history is saved locally.'
+      ?(serverMode?'Ask anything \u2014 history is saved on the server.':'Ask anything \u2014 history is saved locally.')
       :'Open \u2699 settings, enter your server URL (LM Studio / llama.cpp / Unsloth Studio), pick a model, and start chatting.';
     e.appendChild(ic);e.appendChild(ti);e.appendChild(tx);
     inner.appendChild(e);updateCtxBar();return;
@@ -666,12 +815,19 @@ input.addEventListener('input',()=>{
 });
 
 /* init */
-if(!chats.length)newChat();
-else if(!activeChat())activeId=chats[0].id;
-if(!settings.baseUrl)$('#settingsPanel').classList.add('open');
-renderChatList();
-renderMessages();
-fetchModels();
+authForm.addEventListener('submit',e=>{e.preventDefault();doAuth()});
+$('#logoutBtn').onclick=()=>logout();
+window.addEventListener('beforeunload',()=>{
+  if(serverMode){try{navigator.sendBeacon('api/data',new Blob([JSON.stringify({settings,chats,activeId})],{type:'application/json'}))}catch{}}
+});
+(async()=>{
+  await initAuth();
+  bindValues();
+  if(!chats.length)newChat();
+  else if(!activeChat())activeId=chats[0].id;
+  if(!serverMode&&!settings.baseUrl)$('#settingsPanel').classList.add('open');
+  renderChatList();renderMessages();fetchModels();
+})();
 </script>
 </body>
 </html>
