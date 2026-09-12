@@ -93,7 +93,7 @@ gitignored, so secrets never end up in the repo). Useful environment variables:
 | `PORT` / `HOST` | `80` / `0.0.0.0` | listen address |
 | `DATA_DIR` | `./data` | where users/sessions/chat data are stored |
 | `MAX_USERS` | `10` | registration cap |
-| `SESSION_DAYS` | `7` | login session lifetime |
+| `SESSION_DAYS` | `7` | session idle timeout (sliding — any activity extends it) |
 | `DATA_KEY` | off | if set, per-user chat data is encrypted at rest (AES-256-GCM) |
 | `ALLOW_REGISTER` | on | set to `0` to disable self-registration |
 | `INITIAL_USER` / `INITIAL_PASSWORD` | — | pre-create an account on first boot (password ≥ 8 chars) |

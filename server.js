@@ -4,7 +4,8 @@
  *
  * Serves index.html and adds multi-user support:
  *   - username + password login, passwords hashed with scrypt (per-user salt)
- *   - session cookies (HttpOnly, SameSite=Lax, default 7 days, persisted to disk)
+ *   - sliding session cookies (HttpOnly, SameSite=Lax, default 7 days idle,
+ *     refreshed on every authenticated request, persisted to disk)
  *   - per-user data storage (settings + chats) under DATA_DIR/users/
  *   - self-service registration, capped at MAX_USERS (default 10)
  *   - simple per-IP lockout after 5 failed logins (15 minutes)
@@ -14,7 +15,7 @@
  *   HOST          bind address           (default 0.0.0.0)
  *   DATA_DIR      where users/sessions/chat data live (default ./data)
  *   MAX_USERS     registration cap       (default 10)
- *   SESSION_DAYS  session lifetime       (default 7)
+ *   SESSION_DAYS  session idle timeout   (default 7; sliding — activity extends it)
  *   DATA_KEY      if set, per-user chat data is encrypted at rest (AES-256-GCM);
  *                 without it the data files are plain JSON
  *   ALLOW_REGISTER  set to "0" to disable self-registration entirely
@@ -62,7 +63,9 @@ const SESSIONS_FILE=path.join(DATA_DIR,'sessions.json');
 function loadJSON(file,d){try{return JSON.parse(fs.readFileSync(file,'utf8'))}catch{return d}}
 let users=loadJSON(USERS_FILE,{});    // key(lowercase) -> {name, salt, hash}
 let sessions=loadJSON(SESSIONS_FILE,{}); // token -> {user, exp}
-for(const t of Object.keys(sessions))if(sessions[t].exp<Date.now())delete sessions[t];
+{const n=Object.keys(sessions).length;
+ for(const t of Object.keys(sessions))if(sessions[t].exp<Date.now())delete sessions[t];
+ if(Object.keys(sessions).length!==n)saveSessions();} // persist the purge
 function saveUsers(){fs.writeFileSync(USERS_FILE,JSON.stringify(users,null,2))}
 function saveSessions(){fs.writeFileSync(SESSIONS_FILE,JSON.stringify(sessions,null,2))}
 
@@ -155,10 +158,16 @@ function isSecure(req){return process.env.FORCE_SECURE==='1'||req.headers['x-for
 function sessionCookie(token,secure){
   return COOKIE+'='+token+'; Path=/; HttpOnly; SameSite=Lax'+(secure?'; Secure':'')+'; Max-Age='+Math.floor(SESSION_MS/1000);
 }
-function currentUser(req){
+function currentUser(req,res){
   const t=parseCookies(req)[COOKIE];
   if(!t||!sessions[t])return null;
   if(sessions[t].exp<Date.now()){delete sessions[t];saveSessions();return null}
+  // sliding: extend the session and re-issue the cookie so the browser's
+  // Max-Age slides with it (otherwise the client would drop out after one
+  // fixed SESSION_DAYS window even while actively used)
+  sessions[t].exp=Date.now()+SESSION_MS;
+  saveSessions();
+  res.setHeader('Set-Cookie',sessionCookie(t,isSecure(req)));
   return sessions[t].user;
 }
 function newSession(res,req,key){
@@ -214,13 +223,13 @@ const server=http.createServer(async(req,res)=>{
     }
 
     if(url.pathname==='/api/me'){
-      const u=currentUser(req);
+      const u=currentUser(req,res);
       if(!u)return json(res,401,{error:'not logged in'});
       return json(res,200,{user:users[u]?users[u].name:u});
     }
 
     if(url.pathname==='/api/data'&&(req.method==='GET'||req.method==='PUT'||req.method==='POST')){
-      const u=currentUser(req);
+      const u=currentUser(req,res);
       if(!u)return json(res,401,{error:'not logged in'});
       const file=path.join(USER_DATA_DIR,u+'.json'); // u is validated -> no path traversal
       if(req.method==='GET'){
