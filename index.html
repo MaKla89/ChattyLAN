@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <!-- No external resources are loaded; network access is fetch() to the user-configured server, plus same-origin /api/* calls when served by server.js. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' http: https:; img-src blob: data:"/>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2315181d'/%3E%3Cpath d='M18 14H46A8 8 0 0 1 54 22V36A8 8 0 0 1 46 44H26L16 52V44H18A8 8 0 0 1 10 36V22A8 8 0 0 1 18 14Z' fill='%234c8dff'/%3E%3Ccircle cx='22' cy='29' r='3.2' fill='%2315181d'/%3E%3Ccircle cx='32' cy='29' r='3.2' fill='%2315181d'/%3E%3Ccircle cx='42' cy='29' r='3.2' fill='%2315181d'/%3E%3C/svg%3E"/>
 <title>ChattyLAN</title>
 <style>
 :root{
@@ -41,9 +42,23 @@ header input{background:var(--panel2);border:1px solid var(--border);color:var(-
 #apiKey{width:150px}
 #sysPrompt{flex:1;min-width:180px}
 #rightSide{margin-left:auto;display:flex;align-items:center;gap:8px}
-#userChip{display:none;align-items:center;gap:2px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:4px 4px 4px 10px;font-size:12.5px;color:var(--text)}
-#userChip button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:2px 5px;border-radius:4px}
-#userChip button:hover{color:var(--err)}
+#usersBox{display:none;position:relative;align-items:center;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:12.5px;color:var(--text)}
+#usersBtn{background:none;border:none;color:var(--text);cursor:pointer;font-size:12.5px;line-height:inherit;padding:0;display:flex;align-items:center;gap:6px}
+#usersBtn:hover{color:var(--accent)}
+#userChip{display:none;position:relative;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:0;font-size:12.5px;color:var(--text)}
+#userBtn{background:none;border:none;color:var(--text);cursor:pointer;font-size:12.5px;line-height:inherit;padding:4px 8px 4px 10px;display:flex;align-items:center;gap:6px;border-radius:6px}
+#userBtn:hover{color:var(--accent)}
+#userDrop{display:none;position:absolute;top:calc(100% + 6px);right:0;z-index:50;background:var(--panel2);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);padding:4px;min-width:170px}
+#userDrop.open{display:block}
+#userDrop .dropItem{display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;color:var(--text);cursor:pointer;font-size:12.5px;line-height:inherit;padding:7px 10px;border-radius:5px;text-align:left}
+#userDrop .dropItem:hover{background:var(--panel)}
+#userDrop .dropItem.danger:hover{color:var(--err)}
+#usersDrop{display:none;position:absolute;top:calc(100% + 6px);right:0;z-index:50;background:var(--panel2);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);padding:8px;min-width:280px}
+#usersDrop.open{display:block}
+#usersDrop table{border-collapse:collapse;width:100%}
+#usersDrop th,#usersDrop td{text-align:left;font-size:12.5px;padding:4px 8px;color:var(--text);white-space:nowrap}
+#usersDrop th{color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)}
+#usersDrop tr:not(:last-child) td{border-bottom:1px solid var(--border)}
 #status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;white-space:nowrap}
 #status .dot{width:8px;height:8px;border-radius:50%;background:#555;display:inline-block}
 #status.ok .dot{background:var(--ok)}
@@ -164,7 +179,8 @@ button.send.stop{background:#7f2d36}
   </div>
   <button id="settingsBtn" title="Server settings">⚙</button>
   <span id="rightSide">
-    <span id="userChip"><span id="userName"></span><button id="logoutBtn" title="Log out">↩</button></span>
+    <span id="usersBox"><button id="usersBtn" title="Registered users (admin)">👥 Users</button><div id="usersDrop"></div></span>
+    <span id="userChip"><button id="userBtn" title="Account"><span>🧑</span><span id="userName"></span></button><div id="userDrop"><button class="dropItem danger" id="logoutBtn">↩ Log out</button></div></span>
     <span id="status"><span class="dot"></span><span id="statusText">not connected</span></span>
   </span>
 </header>
@@ -222,6 +238,7 @@ let streaming=false,aborter=null;
 /* ---------- auth + storage (server-backed when available, localStorage fallback) ---------- */
 let serverMode=false;      // true once /api/me confirms a session
 let loggedInUser=null;     // display name
+let isAdmin=false;         // admin account (INITIAL_USER) -> gets the "Users" button
 let regOpenFlag=true,maxUsersFlag=10;
 let saveTimer=null;
 function load(k,d){try{const v=JSON.parse(localStorage.getItem(k));return v??d}catch{return d}}
@@ -304,7 +321,7 @@ async function doAuth(){
   try{
     const mode=authForm.dataset.mode||'login';
     const j=await apiJSON(mode==='login'?'api/login':'api/register','POST',{username:u,password:p});
-    loggedInUser=j.user;serverMode=true;
+    loggedInUser=j.user;isAdmin=!!j.admin;serverMode=true;
     await loadServerData();
     hideAuth();showUserChip();bindValues();
     if(!chats.length)newChat();else if(!activeChat())activeId=chats[0].id;
@@ -312,10 +329,12 @@ async function doAuth(){
   }catch(e){authErr.textContent=e.message}
   finally{$('#authSubmit').disabled=false}
 }
-function showUserChip(){$('#userName').textContent=loggedInUser||'';$('#userChip').style.display='flex'}
+function showUserChip(){$('#userName').textContent=loggedInUser||'';$('#usersBox').style.display=isAdmin?'flex':'none';$('#userChip').style.display='block'}
 async function logout(){
   try{await fetch('api/logout',{method:'POST'})}catch{}
-  serverMode=false;loggedInUser=null;models=[];
+  serverMode=false;loggedInUser=null;isAdmin=false;models=[];
+  closeUsersDrop();closeUserDrop();
+  $('#usersBox').style.display='none';
   $('#userChip').style.display='none';
   setAuthMode('login');showAuth();
   loadLocalData();bindValues();
@@ -334,13 +353,55 @@ async function initAuth(){
   renderAuthAlt();
   try{
     const me=await apiJSON('api/me','GET');
-    loggedInUser=me.user;serverMode=true;
+    loggedInUser=me.user;isAdmin=!!me.admin;serverMode=true;
     await loadServerData();
     hideAuth();showUserChip();
   }catch{
     showAuth(); // server present, not logged in -> stay on the login screen
   }
 }
+
+/* ---------- admin: registered users dropdown ---------- */
+const usersBtn=$('#usersBtn'),usersDrop=$('#usersDrop');
+function fmtLogin(iso){
+  if(!iso)return'never';
+  const d=new Date(iso);
+  if(isNaN(d))return iso;
+  return d.toLocaleDateString()+' '+d.toLocaleTimeString();
+}
+function renderUsers(list){
+  usersDrop.innerHTML='';
+  const mk=(tag,txt)=>{const el=document.createElement(tag);el.textContent=txt;return el};
+  const t=document.createElement('table');
+  const hr=document.createElement('tr');hr.append(mk('th','User'),mk('th','Last login'));t.appendChild(hr);
+  for(const u of list){
+    const tr=document.createElement('tr');
+    tr.append(mk('td',u.name),mk('td',fmtLogin(u.lastLogin)));
+    t.appendChild(tr);
+  }
+  usersDrop.appendChild(t);
+}
+async function openUsers(){
+  if(usersDrop.classList.contains('open')){usersDrop.classList.remove('open');return}
+  try{
+    const j=await apiJSON('api/users','GET');
+    renderUsers(j.users||[]);
+    usersDrop.classList.add('open');
+  }catch(e){
+    usersDrop.innerHTML='';
+    const p=document.createElement('div');p.style.cssText='font-size:12.5px;color:var(--err)';p.textContent=e.message;
+    usersDrop.appendChild(p);usersDrop.classList.add('open');
+  }
+}
+function closeUsersDrop(){usersDrop.classList.remove('open')}
+usersBtn.onclick=e=>{e.stopPropagation();openUsers()};
+document.addEventListener('click',e=>{if(!e.target.closest('#usersBox'))closeUsersDrop()});
+
+/* user chip: dropdown with the logout action */
+const userBtn=$('#userBtn'),userDrop=$('#userDrop');
+function closeUserDrop(){userDrop.classList.remove('open')}
+userBtn.onclick=e=>{e.stopPropagation();userDrop.classList.toggle('open')};
+document.addEventListener('click',e=>{if(!e.target.closest('#userChip'))closeUserDrop()});
 
 function normalizeBase(u){
   u=(u||'').trim().replace(/\/+$/,'');

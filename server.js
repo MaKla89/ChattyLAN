@@ -22,7 +22,9 @@
  *   FORCE_SECURE  set to "1" if TLS is terminated in front of this server
  *   INITIAL_USER / INITIAL_PASSWORD
  *                 if set and no users exist yet, this account is created on
- *                 first start (password must be >= 8 chars)
+ *                 first start (password must be >= 8 chars). This account is
+ *                 the admin: it gets a "Users" button in the UI that lists all
+ *                 registered users with their last login date/time.
  */
 const http=require('http');
 const fs=require('fs');
@@ -61,7 +63,7 @@ const SESSIONS_FILE=path.join(DATA_DIR,'sessions.json');
 
 /* ---------- persistence ---------- */
 function loadJSON(file,d){try{return JSON.parse(fs.readFileSync(file,'utf8'))}catch{return d}}
-let users=loadJSON(USERS_FILE,{});    // key(lowercase) -> {name, salt, hash}
+let users=loadJSON(USERS_FILE,{});    // key(lowercase) -> {name, salt, hash, admin?, lastLogin?}
 let sessions=loadJSON(SESSIONS_FILE,{}); // token -> {user, exp}
 {const n=Object.keys(sessions).length;
  for(const t of Object.keys(sessions))if(sessions[t].exp<Date.now())delete sessions[t];
@@ -95,16 +97,23 @@ function verifyPassword(pw,rec){
   return stored.length===h.length&&crypto.timingSafeEqual(h,stored);
 }
 
-/* optional initial account (handy for NAS first boot) */
-if(!Object.keys(users).length&&process.env.INITIAL_USER){
+/* optional initial account (handy for NAS first boot) — always the admin */
+if(process.env.INITIAL_USER){
   const u=process.env.INITIAL_USER,p=process.env.INITIAL_PASSWORD||'';
-  if(validUsername(u)&&p.length>=8){
-    const salt=crypto.randomBytes(16).toString('hex');
-    users[u.toLowerCase()]={name:u,salt,hash:hashPassword(p,salt)};
+  const key=u.toLowerCase();
+  if(!Object.keys(users).length){
+    if(validUsername(u)&&p.length>=8){
+      const salt=crypto.randomBytes(16).toString('hex');
+      users[key]={name:u,salt,hash:hashPassword(p,salt),admin:true};
+      saveUsers();
+      console.log('Created initial user "'+u+'" from INITIAL_USER/INITIAL_PASSWORD.');
+    }else{
+      console.warn('INITIAL_USER is set but invalid (need valid username + password >= 8 chars).');
+    }
+  }else if(users[key]&&!users[key].admin){ // migration: promote pre-existing account
+    users[key].admin=true;
     saveUsers();
-    console.log('Created initial user "'+u+'" from INITIAL_USER/INITIAL_PASSWORD.');
-  }else{
-    console.warn('INITIAL_USER is set but invalid (need valid username + password >= 8 chars).');
+    console.log('Promoted existing user "'+u+'" to admin.');
   }
 }
 
@@ -195,10 +204,10 @@ const server=http.createServer(async(req,res)=>{
       const key=u.toLowerCase();
       if(users[key])return json(res,409,{error:'Username already taken.'});
       const salt=crypto.randomBytes(16).toString('hex');
-      users[key]={name:u,salt,hash:hashPassword(p,salt)};
+      users[key]={name:u,salt,hash:hashPassword(p,salt),lastLogin:new Date().toISOString()};
       saveUsers();
       newSession(res,req,key);
-      return json(res,200,{user:u});
+      return json(res,200,{user:u,admin:false});
     }
 
     if(url.pathname==='/api/login'&&req.method==='POST'){
@@ -211,8 +220,10 @@ const server=http.createServer(async(req,res)=>{
         return json(res,401,{error:'Invalid username or password.'});
       }
       fails.delete(ip);
+      rec.lastLogin=new Date().toISOString();
+      saveUsers();
       newSession(res,req,u);
-      return json(res,200,{user:rec.name});
+      return json(res,200,{user:rec.name,admin:!!rec.admin});
     }
 
     if(url.pathname==='/api/logout'&&req.method==='POST'){
@@ -225,7 +236,14 @@ const server=http.createServer(async(req,res)=>{
     if(url.pathname==='/api/me'){
       const u=currentUser(req,res);
       if(!u)return json(res,401,{error:'not logged in'});
-      return json(res,200,{user:users[u]?users[u].name:u});
+      return json(res,200,{user:users[u]?users[u].name:u,admin:!!(users[u]&&users[u].admin)});
+    }
+
+    if(url.pathname==='/api/users'){
+      const u=currentUser(req,res);
+      if(!u)return json(res,401,{error:'not logged in'});
+      if(!(users[u]&&users[u].admin))return json(res,403,{error:'forbidden'});
+      return json(res,200,{users:Object.values(users).map(r=>({name:r.name,lastLogin:r.lastLogin||null}))});
     }
 
     if(url.pathname==='/api/data'&&(req.method==='GET'||req.method==='PUT'||req.method==='POST')){
