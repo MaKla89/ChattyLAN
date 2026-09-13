@@ -96,6 +96,10 @@ header input{background:var(--panel2);border:1px solid var(--border);color:var(-
 .bubble li{margin:.18em 0}
 .bubble hr{border:none;border-top:1px solid var(--border);margin:.9em 0}
 .bubble blockquote{border-left:3px solid var(--border);margin:.5em 0;padding:2px 10px;color:var(--muted)}
+.bubble table{border-collapse:collapse;margin:.5em 0;font-size:.95em;max-width:100%;display:block;overflow-x:auto}
+.bubble th,.bubble td{border:1px solid var(--border);padding:6px 10px;text-align:left;vertical-align:top}
+.bubble thead th{background:#0a0c0f;font-weight:600}
+.bubble tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
 .bubble pre{background:#0a0c0f;border:1px solid var(--border);border-radius:8px;padding:10px;overflow-x:auto;font-size:13px;margin:.5em 0}
 .bubble code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .bubble :not(pre)>code{background:#0a0c0f;padding:1px 5px;border-radius:4px;font-size:.92em}
@@ -394,15 +398,36 @@ function md(src){
     block=block.trim();
     if(!block)return'';
     if(/^\u0000\d+\u0000$/.test(block))return block;
-    const h=block.match(/^(#{1,6}) (.+)$/);
-    if(h&&block.indexOf('\n')===-1)return '<h'+h[1].length+'>'+inline(h[2])+'</h'+h[1].length+'>';
-    const hl=block.split('\n')[0].match(/^(#{1,6}) (.+)$/);
+    const lines=block.split('\n');
+    // GFM table: a header row followed by a separator row (| --- | :---: | ...),
+    // possibly with other lines before/after it in the same block.
+    const isSep=l=>/^\s*\|?[\s:\-|]+\|?\s*$/.test(l)&&l.includes('-');
+    const ti=lines.findIndex((l,i)=>i<lines.length-1&&l.includes('|')&&isSep(lines[i+1])&&(lines[i+1].includes('|')||l.trim().startsWith('|')));
+    if(ti!==-1){
+      const parseRow=l=>{let r=l.trim().replace(/\\\|/g,'\u0001');if(r.startsWith('|'))r=r.slice(1);if(r.endsWith('|'))r=r.slice(0,-1);return r.split('|').map(c=>c.replace(/\u0001/g,'|').trim())};
+      const aligns=parseRow(lines[ti+1]).map(c=>{const l=c.startsWith(':'),r=c.endsWith(':');return l&&r?'center':r?'right':l?'left':''});
+      let end=ti+2;while(end<lines.length&&lines[end].includes('|'))end++;
+      const head=parseRow(lines[ti]);
+      const rows=lines.slice(ti+2,end).map(parseRow);
+      const cell=(c,i,tag)=>'<'+tag+(aligns[i]?' style="text-align:'+aligns[i]+'"':'')+'>'+inline(c)+'</'+tag+'>';
+      let html='<table><thead><tr>'+head.map((c,i)=>cell(c,i,'th')).join('')+'</tr></thead>';
+      if(rows.length)html+='<tbody>'+rows.map(r=>'<tr>'+r.map((c,i)=>cell(c,i,'td')).join('')+'</tr>').join('')+'</tbody>';
+      html+='</table>';
+      const renderSeg=ls=>{let out='',buf=[];const flush=()=>{if(buf.length){out+='<p>'+inline(buf.join('\n')).replace(/\n/g,'<br>')+'</p>';buf=[]}};for(const l of ls){const hh=l.match(/^(#{1,6}) (.+)$/);if(hh){flush();out+='<h'+hh[1].length+'>'+inline(hh[2])+'</h'+hh[1].length+'>';}else buf.push(l)}flush();return out};
+      const pre=ti>0?renderSeg(lines.slice(0,ti)):'';
+      const post=end<lines.length?renderSeg(lines.slice(end)):'';
+      return pre+html+post;
+    }
+    if(lines.length===1){
+      const h=lines[0].match(/^(#{1,6}) (.+)$/);
+      if(h)return '<h'+h[1].length+'>'+inline(h[2])+'</h'+h[1].length+'>';
+      if(/^(-{3,}|\*{3,}|_{3,})$/.test(lines[0]))return '<hr/>';
+    }
+    const hl=lines[0].match(/^(#{1,6}) (.+)$/);
     if(hl){
-      const rest=block.slice(block.indexOf('\n')+1).trim();
+      const rest=lines.slice(1).join('\n').trim();
       return '<h'+hl[1].length+'>'+inline(hl[2])+'</h'+hl[1].length+'>'+(rest?'<p>'+inline(rest).replace(/\n/g,'<br>')+'</p>':'');
     }
-    if(/^(-{3,}|\*{3,}|_{3,})$/.test(block))return '<hr/>';
-    const lines=block.split('\n');
     if(lines.every(l=>/^[-*+] /.test(l)))
       return '<ul>'+lines.map(l=>'<li>'+inline(l.slice(2))+'</li>').join('')+'</ul>';
     if(lines.every(l=>/^\d+\. /.test(l)))
