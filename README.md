@@ -29,6 +29,7 @@ around it. The app detects automatically which mode it's in — no configuration
 - Token streaming (SSE) with a Stop button
 - **Reasoning** shown in a collapsible block (reads `reasoning_content`, fallback `reasoning`)
 - **Persistent history**: multiple conversations saved in your browser's `localStorage` (new / switch / rename / delete — hover a chat for the icons)
+- **Collapsible chat list**: the ☰ button in the header hides/shows the sidebar so the conversation gets the full width — on small screens (≤ 760px, e.g. smartphones) it starts hidden by default; your choice is remembered per browser
 - **Save / load to file**: hover a chat in the sidebar — ⬇ downloads it as JSON (incl. reasoning, re-importable via ⬆ Import), `MD` exports it as Markdown (reasoning is omitted)
 - **Regenerate / branch**: hover the last answer for ↻ regenerate (replaces it); hover one of your messages for ⑂ to branch off into a new chat with the history up to that point (ending at the previous complete answer — your message is not carried over)
 - **Context usage bar**: shows estimated token usage of the current chat vs. the model's context length (read from `/v1/models`), turns yellow at 70% and red at 90%, with a warning near/over the limit
@@ -132,7 +133,8 @@ same machine.
   requests themselves. Deleting a user's file wipes their data. Set `DATA_KEY`
   to encrypt these files at rest (AES-256-GCM); by default they are plain JSON.
 - **Mode 1** (static hosting / `file://`): everything lives in your browser's
-  `localStorage` under the keys `chatty.settings`, `chatty.chats`, `chatty.active`.
+  `localStorage` under the keys `chatty.settings`, `chatty.chats`, `chatty.active`
+  and `chatty.nav` (sidebar open/closed state).
 
 Note: `localStorage` is per browser *and* per origin (`file://` vs `http://localhost:8000`
 are different stores), and has a ~5–10 MB quota. If it fills up, the app shows a warning
