@@ -34,6 +34,8 @@ header input{background:var(--panel2);border:1px solid var(--border);color:var(-
 .modelOpt.dim{color:var(--muted);cursor:default}
 #settingsBtn{margin-left:8px;background:var(--panel2);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:14px;line-height:1}
 #settingsBtn:hover{color:var(--text);border-color:var(--accent)}
+#navToggle{background:var(--panel2);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:5px 9px;cursor:pointer;font-size:14px;line-height:1}
+#navToggle:hover{color:var(--text);border-color:var(--accent)}
 #settingsPanel{display:none;flex-wrap:wrap;gap:10px 14px;align-items:center;padding:10px 12px;background:var(--panel);border-bottom:1px solid var(--border)}
 #settingsPanel.open{display:flex}
 #settingsPanel label{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);white-space:nowrap}
@@ -66,8 +68,9 @@ header input{background:var(--panel2);border:1px solid var(--border);color:var(-
 #status.busy .dot{background:var(--accent);animation:busyPulse 1.3s ease-out infinite}
 @keyframes busyPulse{0%{box-shadow:0 0 0 0 rgba(76,141,255,.55)}70%{box-shadow:0 0 0 6px rgba(76,141,255,0)}100%{box-shadow:0 0 0 0 rgba(76,141,255,0)}}
 #main{flex:1;display:flex;min-height:0}
-#sidebar{width:230px;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column}
-#newChat,#importBtn{margin:0 10px;padding:7px;border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:6px;cursor:pointer;font-size:13px}
+#sidebar{width:230px;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;transition:width .18s ease}
+body.nav-closed #sidebar{width:0;border-right:none}
+#newChat,#importBtn{margin:0 10px;padding:7px;border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap}
 #newChat{margin-top:10px}
 #importBtn{margin-bottom:10px}
 #newChat:hover,#importBtn:hover{border-color:var(--accent)}
@@ -172,6 +175,7 @@ button.send.stop{background:#7f2d36}
 </head>
 <body>
 <header>
+  <button id="navToggle" title="Toggle chat list" aria-expanded="true">☰</button>
   <span class="logo">ChattyLAN</span>
   <div class="modelWrap">
     <input id="model" placeholder="model" spellcheck="false"/>
@@ -227,7 +231,7 @@ button.send.stop{background:#7f2d36}
 <script>
 "use strict";
 const $=s=>document.querySelector(s);
-const LS={settings:'chatty.settings',chats:'chatty.chats',active:'chatty.active'};
+const LS={settings:'chatty.settings',chats:'chatty.chats',active:'chatty.active',nav:'chatty.nav'};
 
 let settings={baseUrl:'',apiKey:'',model:'',systemPrompt:''};
 let chats=[];
@@ -880,6 +884,30 @@ modelInput.addEventListener('keydown',e=>{
 document.addEventListener('click',e=>{if(!e.target.closest('.modelWrap'))closeModelDrop()});
 
 $('#settingsBtn').onclick=()=>$('#settingsPanel').classList.toggle('open');
+
+/* ---------- collapsible sidebar / nav ---------- */
+function navDefaultOpen(){return !window.matchMedia('(max-width:760px)').matches}
+let navOpen=navDefaultOpen();
+{
+  let stored=null;try{stored=localStorage.getItem(LS.nav)}catch{}
+  if(stored!==null)navOpen=(stored==='true');
+}
+function applyNav(open){
+  document.body.classList.toggle('nav-closed',!open);
+  const b=$('#navToggle');if(b){b.setAttribute('aria-expanded',String(open));b.title=open?'Hide chat list':'Show chat list'}
+}
+applyNav(navOpen);
+$('#navToggle').onclick=()=>{
+  navOpen=!navOpen;
+  try{localStorage.setItem(LS.nav,String(navOpen))}catch{}
+  applyNav(navOpen);
+};
+const navMq=window.matchMedia('(max-width:760px)');
+if(navMq.addEventListener)navMq.addEventListener('change',()=>{
+  let stored=null;try{stored=localStorage.getItem(LS.nav)}catch{}
+  if(stored===null){navOpen=navDefaultOpen();applyNav(navOpen)}
+});
+
 $('#newChat').onclick=()=>{if(!streaming)newChat()};
 $('#importBtn').onclick=()=>$('#importFile').click();
 $('#importFile').addEventListener('change',e=>{

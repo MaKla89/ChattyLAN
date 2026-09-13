@@ -36,6 +36,8 @@ around it. The app detects automatically which mode it's in — no configuration
 - Minimal offline markdown rendering (code blocks, inline code, bold/italic, links)
 - **Mode 2 only:** username + password login, per-user chat history stored on the
   server, up to 10 users by default (see below)
+- **Admin user** (Mode 2): the `INITIAL_USER` account gets a 👥 *Users* button in the
+  header that lists all registered users with their last login date/time
 
 ## Mode 1 — single file (no login)
 
@@ -73,6 +75,11 @@ On first visit you create an account (or pre-create one via `INITIAL_USER` /
 then closes automatically. Each user gets their own settings and chat history,
 stored under `./data/users/`.
 
+The `INITIAL_USER` account is the **admin**: it sees a 👥 *Users* button next to its
+name in the header, which opens a list of all registered users with their last
+login date/time. If the account already existed before this feature was added,
+it is promoted to admin automatically on the next start.
+
 <details>
 <summary><b>No Docker?</b> Run the backend directly with Node.js (≥ 18)</summary>
 
@@ -96,7 +103,7 @@ gitignored, so secrets never end up in the repo). Useful environment variables:
 | `SESSION_DAYS` | `7` | session idle timeout (sliding — any activity extends it) |
 | `DATA_KEY` | off | if set, per-user chat data is encrypted at rest (AES-256-GCM) |
 | `ALLOW_REGISTER` | on | set to `0` to disable self-registration |
-| `INITIAL_USER` / `INITIAL_PASSWORD` | — | pre-create an account on first boot (password ≥ 8 chars) |
+| `INITIAL_USER` / `INITIAL_PASSWORD` | — | pre-create an account on first boot (password ≥ 8 chars); this account is the admin (👥 *Users* button) |
 | `FORCE_SECURE` | off | set to `1` if TLS is terminated in front of the server |
 
 Security notes: passwords are hashed with scrypt (per-user salt, constant-time
