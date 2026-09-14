@@ -252,7 +252,10 @@ const server=http.createServer(async(req,res)=>{
       const file=path.join(USER_DATA_DIR,u+'.json'); // u is validated -> no path traversal
       if(req.method==='GET'){
         let data;try{data=loadUserData(file)}catch(e){return json(res,500,{error:e.message})}
-        return json(res,200,data||{settings:{},chats:[],activeId:null});
+        if(!data)data={settings:{},chats:[],activeId:null};
+        const etag='"'+(data.rev||0)+'"'; // rev is bumped on every PUT -> cheap change detection for other devices
+        if(req.headers['if-none-match']===etag)return res.writeHead(304).end();
+        return json(res,200,data,{ETag:etag});
       }
       let j;try{j=await readJSON(req)}catch{return json(res,400,{error:'invalid JSON'})}
       // keep only the known shape (defense in depth)
@@ -275,9 +278,10 @@ const server=http.createServer(async(req,res)=>{
         activeId:typeof j.activeId==='string'?j.activeId:null
       };
       // refuse to overwrite data we cannot decrypt (wrong/missing DATA_KEY)
-      try{loadUserData(file)}catch(e){return json(res,500,{error:e.message})}
-      saveUserData(file,out);
-      return json(res,200,{ok:true});
+      let cur;try{cur=loadUserData(file)}catch(e){return json(res,500,{error:e.message})}
+      const rev=(cur&&cur.rev||0)+1; // bumped on every write -> other devices detect the change via ETag
+      saveUserData(file,{...out,rev});
+      return json(res,200,{ok:true,rev});
     }
 
     if(url.pathname==='/'||url.pathname==='/index.html'){

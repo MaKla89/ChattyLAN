@@ -245,6 +245,8 @@ let loggedInUser=null;     // display name
 let isAdmin=false;         // admin account (INITIAL_USER) -> gets the "Users" button
 let regOpenFlag=true,maxUsersFlag=10;
 let saveTimer=null;
+let serverRev=0;   // rev of the last server state we saw or wrote (change detection across devices)
+let dirty=false;   // local changes not yet pushed to the server
 function load(k,d){try{const v=JSON.parse(localStorage.getItem(k));return v??d}catch{return d}}
 function loadLocalData(){
   settings=load(LS.settings,{baseUrl:'',apiKey:'',model:'',systemPrompt:''});
@@ -262,14 +264,36 @@ function lsSave(){
 }
 function save(){
   if(serverMode){
+    dirty=true;
     clearTimeout(saveTimer);
     saveTimer=setTimeout(pushData,600);
   }else lsSave();
 }
 async function pushData(){
-  try{await fetch('api/data',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings,chats,activeId})})}
+  try{
+    const res=await fetch('api/data',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings,chats,activeId})});
+    if(res.ok){const j=await res.json().catch(()=>({}));serverRev=j.rev??serverRev+1;dirty=false}
+    else showError('Could not save to server \u2014 changes are only in this browser tab for now.');
+  }
   catch(e){showError('Could not save to server \u2014 changes are only in this browser tab for now.')}
 }
+
+/* cross-device sync: poll the server for changes made by other devices of the same user.
+   Unchanged polls are cheap (ETag -> 304, no body). While streaming we skip pulling so an
+   in-flight reply is never clobbered; pending local changes are flushed before a pull. */
+async function pollSync(){
+  if(!serverMode||streaming||document.hidden)return;
+  try{
+    const res=await fetch('api/data',{headers:{'If-None-Match':'"'+serverRev+'"'}});
+    if(res.status===304||!res.ok)return;
+    const j=await res.json();
+    if((j.rev||0)===serverRev)return;
+    if(dirty){clearTimeout(saveTimer);pushData();return} // flush ours first; the next poll reconciles
+    applyServerData(j);
+  }catch{}
+}
+setInterval(pollSync,5000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollSync()});
 function bindValues(){
   $('#baseUrl').value=settings.baseUrl||'';
   $('#model').value=settings.model||'';
@@ -312,11 +336,17 @@ async function apiJSON(url,method,body){
   if(!res.ok)throw new Error(j.error||('HTTP '+res.status));
   return j;
 }
-async function loadServerData(){
-  const j=await apiJSON('api/data','GET');
-  settings={baseUrl:j.settings?.baseUrl||'',apiKey:j.settings?.apiKey||'',model:j.settings?.model||'',systemPrompt:j.settings?.systemPrompt||''};
+function applyServerData(j){
+  serverRev=j.rev||0;
+  const s={baseUrl:j.settings?.baseUrl||'',apiKey:j.settings?.apiKey||'',model:j.settings?.model||'',systemPrompt:j.settings?.systemPrompt||''};
   chats=Array.isArray(j.chats)?j.chats:[];
   activeId=j.activeId||null;
+  if(JSON.stringify(s)!==JSON.stringify(settings)){settings=s;bindValues()} // don't clobber half-typed settings fields
+  renderChatList();renderMessages();updateCtxBar();
+}
+async function loadServerData(){
+  const j=await apiJSON('api/data','GET');
+  applyServerData(j);
 }
 async function doAuth(){
   const u=$('#authUser').value.trim(),p=$('#authPass').value;
@@ -337,6 +367,7 @@ function showUserChip(){$('#userName').textContent=loggedInUser||'';$('#usersBox
 async function logout(){
   try{await fetch('api/logout',{method:'POST'})}catch{}
   serverMode=false;loggedInUser=null;isAdmin=false;models=[];
+  serverRev=0;dirty=false;
   closeUsersDrop();closeUserDrop();
   $('#usersBox').style.display='none';
   $('#userChip').style.display='none';
