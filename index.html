@@ -464,7 +464,7 @@ async function fetchModels(){
     models=(j.data||[]).map(m=>({id:m.id,ctx:modelCtx(m)}));
     setStatus('ok',models.length+' model'+(models.length===1?'':'s'));
   }catch(e){setStatus('err',e.message)}
-  if(modelDrop.classList.contains('open'))renderModelDrop($('#model').value);
+  if(modelDrop.classList.contains('open'))renderModelDrop();
   updateCtxBar();
 }
 function scheduleModels(){clearTimeout(modelTimer);modelTimer=setTimeout(fetchModels,500)}
@@ -666,7 +666,8 @@ function updateCtxBar(){
   label.title=real
     ?'Based on the last request: '+fmtTok(chat.lastUsage.prompt)+' prompt + '+fmtTok(chat.lastUsage.completion||0)+' completion tokens (reported by the server).'
     :'Estimated from character count (~3 chars per token).';
-  const m=models.find(x=>x.id===settings.model);
+  let m=models.find(x=>x.id===settings.model);
+  if(!m)m=models.find(x=>x.id.toLowerCase()===(settings.model||'').toLowerCase()); // tolerate case drift
   const limit=m&&m.ctx?m.ctx:null;
   if(!limit){
     fill.style.width='0%';
@@ -877,6 +878,10 @@ async function generate(chat){
     streaming=false;setStreamingUI(false);aborter=null;
     if(live.details){live.details.classList.remove('streaming');if(!am.reasoning)live.details.remove();else live.details.open=false;}
     save();renderMessages();
+    // Some backends (e.g. Unsloth Studio) only report context_length for the model
+    // currently loaded in memory — after a request that model is loaded, so re-fetch
+    // to pick up its limit (and any newly available models).
+    fetchModels();
   }
 }
 
@@ -890,39 +895,39 @@ function bind(id,key,after){
   });
 }
 bind('#baseUrl','baseUrl',scheduleModels);
-bind('#model','model');
+// NOTE: the model input is intentionally NOT bound to settings.model — it's a
+// filter/display field. Committing on every keystroke would overwrite the
+// selected model with partial text and break the context-limit lookup.
+// pickModel() (dropdown click / Enter) is the only thing that sets settings.model.
 bind('#apiKey','apiKey',scheduleModels);
 bind('#sysPrompt','systemPrompt',updateCtxBar);
 
 /* ---------- model dropdown (custom: native datalist won't open when value matches an option) ---------- */
 const modelInput=$('#model'),modelDrop=$('#modelDrop');
-let modelHl=-1,modelFocusVal='';
-function renderModelDrop(filter){
-  const f=(filter||'').toLowerCase();
-  const list=models.filter(m=>!f||m.id.toLowerCase().includes(f));
+let modelHl=-1;
+// The field is display-only — you pick from the dropdown (click, or arrow keys + Enter).
+// No free typing, so settings.model is always a real, valid model id.
+modelInput.readOnly=true;
+function renderModelDrop(){
   modelDrop.innerHTML='';modelHl=-1;
-  if(!list.length){
+  if(!models.length){
     const d=document.createElement('div');d.className='modelOpt dim';
-    d.textContent=models.length?'no match':'no models available';
+    d.textContent='no models available';
     modelDrop.appendChild(d);return;
   }
-  for(const m of list){
+  for(const m of models){
     const o=document.createElement('div');
     o.className='modelOpt'+(m.id===settings.model?' sel':'');o.dataset.v=m.id;o.textContent=m.ctx?m.id+' \u00B7 '+fmtTok(m.ctx)+' ctx':m.id;
     o.onmousedown=e=>{e.preventDefault();pickModel(m.id)};
     modelDrop.appendChild(o);
   }
 }
-function openModelDrop(){modelFocusVal=modelInput.value;renderModelDrop('');modelDrop.classList.add('open')}
+function openModelDrop(){renderModelDrop();modelDrop.classList.add('open')}
 function closeModelDrop(){modelDrop.classList.remove('open');modelHl=-1}
+// The only place settings.model is committed. Also syncs the field to the real id.
 function pickModel(m){settings.model=m;modelInput.value=m;save();closeModelDrop();updateCtxBar()}
 modelInput.addEventListener('focus',openModelDrop);
 modelInput.addEventListener('click',()=>{if(!modelDrop.classList.contains('open'))openModelDrop()});
-modelInput.addEventListener('input',()=>{
-  if(!modelDrop.classList.contains('open'))return;
-  const v=modelInput.value;
-  renderModelDrop(v.startsWith(modelFocusVal)?v.slice(modelFocusVal.length):v);
-});
 modelInput.addEventListener('keydown',e=>{
   const opts=[...modelDrop.querySelectorAll('.modelOpt[data-v]')];
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){
@@ -933,7 +938,7 @@ modelInput.addEventListener('keydown',e=>{
   }else if(e.key==='Enter'&&modelHl>=0&&opts[modelHl]){
     e.preventDefault();pickModel(opts[modelHl].dataset.v);
   }else if(e.key==='Escape'){
-    modelInput.value=modelFocusVal;settings.model=modelFocusVal;save();closeModelDrop();
+    closeModelDrop();
   }
 });
 document.addEventListener('click',e=>{if(!e.target.closest('.modelWrap'))closeModelDrop()});
