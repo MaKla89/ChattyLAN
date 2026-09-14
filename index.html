@@ -101,11 +101,14 @@ body.nav-closed #sidebar{width:0;border-right:none}
 .msg.user .micons{right:0}
 .msg.assistant .micons{left:0}
 .msg:hover .micons{opacity:1}
+.micons.pinned{opacity:1}
 .micon{font-size:12px;line-height:1;color:var(--muted);background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:3px 7px;cursor:pointer}
 .micon:hover{color:var(--text);border-color:var(--accent)}
 .msg .who{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin:0 2px}
 .msg.user .bubble{background:var(--accent2);border-radius:10px;padding:9px 12px;white-space:pre-wrap;word-wrap:break-word;box-shadow:0 1px 3px rgba(0,0,0,.3)}
 .msg.assistant .bubble{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;word-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.msg.assistant .bubble.err{background:#2a1518;border-color:#7f2d36;color:#ffb4bb;white-space:pre-wrap}
+.errNote{font-size:12.5px;color:#ffb4bb;background:#2a1518;border:1px solid #7f2d36;border-radius:6px;padding:5px 9px;white-space:pre-wrap}
 .bubble p:first-child{margin-top:0}
 .bubble p:last-child{margin-bottom:0}
 .bubble h1,.bubble h2,.bubble h3,.bubble h4,.bubble h5,.bubble h6{margin:.7em 0 .35em;line-height:1.3;font-weight:700}
@@ -708,14 +711,15 @@ function msgEl(m,idx,isLast){
   av.textContent=m.role==='user'?'\uD83D\uDE42':'\uD83E\uDD16';
   d.appendChild(av);
   const body=document.createElement('div');body.className='mbody';
+  const isErr=m.role==='assistant'&&!!m.error;
   if((m.role==='user'&&idx>0)||(isLast&&m.role==='assistant')){
-    const icons=document.createElement('span');icons.className='micons';
+    const icons=document.createElement('span');icons.className='micons'+(isErr?' pinned':'');
     const b=document.createElement('button');b.className='micon';
     if(m.role==='user'){
       b.textContent='\u2382';b.title='Branch here (new chat with history up to this point)';
       b.onclick=()=>branchAt(idx);
     }else{
-      b.textContent='\u21BB';b.title='Regenerate answer';
+      b.textContent='\u21BB';b.title=isErr?'Retry \u2014 regenerate answer':'Regenerate answer';
       b.onclick=regenerate;
     }
     icons.appendChild(b);
@@ -733,8 +737,11 @@ function msgEl(m,idx,isLast){
     body.appendChild(det);
   }
   const b=document.createElement('div');b.className='bubble';
-  if(m.role==='user')b.textContent=m.content;else b.innerHTML=md(m.content);
+  if(m.role==='user')b.textContent=m.content;
+  else if(isErr&&!m.content){b.classList.add('err');b.textContent='\u26A0 '+m.error}
+  else b.innerHTML=md(m.content);
   body.appendChild(b);
+  if(isErr&&m.content){const n=document.createElement('div');n.className='errNote';n.textContent='\u26A0 '+m.error;body.appendChild(n)}
   d.appendChild(body);
   return d;
 }
@@ -785,6 +792,7 @@ async function send(){
 async function regenerate(){
   if(streaming)return;
   const chat=activeChat();if(!chat)return;
+  clearError();
   if(chat.messages.length&&chat.messages[chat.messages.length-1].role==='assistant')chat.messages.pop();
   save();
   await generate(chat);
@@ -795,7 +803,7 @@ function branchAt(index){
   const src=activeChat();if(!src||index<1||index>=src.messages.length)return;
   const c={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),
     title:src.title+' (branch)',
-    messages:src.messages.slice(0,index).map(m=>({role:m.role,content:m.content,reasoning:m.reasoning||''}))};
+    messages:src.messages.slice(0,index).map(m=>({role:m.role,content:m.content,reasoning:m.reasoning||'',error:m.error||''}))};
   chats.unshift(c);activeId=c.id;save();renderChatList();renderMessages();
 }
 
@@ -867,12 +875,9 @@ async function generate(chat){
     if(e.name==='AbortError'){
       if(!am.content&&!am.reasoning)chat.messages.pop();
     }else{
-      if(!am.content&&!am.reasoning){
-        chat.messages.pop();
-        showError('Request failed: '+e.message);
-      }else{
-        showError('Stream interrupted: '+e.message);
-      }
+      // Keep the (empty or partial) reply in history as a red error bubble with
+      // a retry button, instead of a dead-end global error bar.
+      am.error=(am.content||am.reasoning)?'Stream interrupted: '+e.message:'Request failed: '+e.message;
     }
   }finally{
     streaming=false;setStreamingUI(false);aborter=null;
