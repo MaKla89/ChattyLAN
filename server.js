@@ -269,6 +269,7 @@ const server=http.createServer(async(req,res)=>{
         chats:Array.isArray(j.chats)?j.chats.slice(0,500).map(c=>({
           id:String(c&&c.id||'').slice(0,64),
           title:String((c&&c.title)||'Chat').slice(0,200),
+          createdAt:Number.isFinite(c&&c.createdAt)?c.createdAt:0,
           messages:Array.isArray(c&&c.messages)?c.messages.slice(0,2000).map(m=>({
             role:m&&m.role==='user'?'user':'assistant',
             content:m&&typeof m.content==='string'?m.content:'',

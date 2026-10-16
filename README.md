@@ -26,18 +26,20 @@ around it. The app detects automatically which mode it's in — no configuration
 ## Features
 
 - Enter the server URL (e.g. `http://192.168.1.50:1234/v1`) and go — model list is fetched from `/v1/models`
-- Token streaming (SSE) with a Stop button
+- Token streaming (SSE) with a Stop button, a typing indicator and a blinking caret while the answer streams in
 - **Reasoning** shown in a collapsible block (reads `reasoning_content`, fallback `reasoning`)
-- **Persistent history**: multiple conversations saved in your browser's `localStorage` (new / switch / rename / delete — click a chat to reveal its action icons; deleting asks for confirmation)
-- **Collapsible chat list**: the ☰ button in the header hides/shows the sidebar so the conversation gets the full width — on small screens (≤ 760px, e.g. smartphones) it starts hidden by default; your choice is remembered per browser
-- **Save / load to file**: select a chat in the sidebar — ⬇ downloads it as JSON (incl. reasoning, re-importable via ⬆ Import), `MD` exports it as Markdown (reasoning is omitted)
-- **Regenerate / branch**: hover the last answer for ↻ regenerate (replaces it); hover one of your messages for ⑂ to branch off into a new chat with the history up to that point (ending at the previous complete answer — your message is not carried over)
-- **Context usage bar**: shows estimated token usage of the current chat vs. the model's context length (read from `/v1/models`), turns yellow at 70% and red at 90%, with a warning near/over the limit
-- Optional API key and system prompt, both persisted
-- Minimal offline markdown rendering (code blocks, inline code, bold/italic, links)
+- **Light & dark themes** — follows your OS setting (`prefers-color-scheme`), no toggle needed
+- **Persistent history**: multiple conversations saved in your browser's `localStorage` (new / switch / rename / delete — click a chat to reveal its action icons; deleting asks for confirmation). The chat list is grouped by date (*Today / Yesterday / Last 7 days / Earlier*)
+- **Collapsible chat list**: the menu button in the header hides/shows the sidebar so the conversation gets the full width — on small screens (≤ 760px, e.g. smartphones) it starts hidden by default; your choice is remembered per browser
+- **Save / load to file**: select a chat in the sidebar — the download button saves it as JSON (incl. reasoning, re-importable via Import), `MD` exports it as Markdown (reasoning is omitted)
+- **Regenerate / branch**: on the last answer, regenerate (replaces it); on one of your messages, branch off into a new chat with the history up to that point (ending at the previous complete answer — your message is not carried over). On touch devices these actions are always visible
+- **Context usage bar**: shows estimated token usage of the current chat vs. the model's context length (read from `/v1/models`), turns yellow at 70% and red at 90%, with a warning near/over the limit; hidden while usage is low
+- Optional API key and system prompt, both persisted — edited in a settings dialog (⚙ / Esc closes)
+- Minimal offline markdown rendering (code blocks, inline code, bold/italic, links) — code blocks get a language label and a **Copy** button
+- **Mobile-friendly**: two-row header, full-width model picker, touch-friendly action buttons, no iOS input zoom; a scroll-to-bottom button appears while reading during long replies
 - **Mode 2 only:** username + password login, per-user chat history stored on the
   server, up to 10 users by default (see below)
-- **Admin user** (Mode 2): the `INITIAL_USER` account gets a 👥 *Users* button in the
+- **Admin user** (Mode 2): the `INITIAL_USER` account gets a *Users* button in the
   header that lists all registered users with their last login date/time
 
 ## Mode 1 — single file (no login)
@@ -76,7 +78,7 @@ On first visit you create an account (or pre-create one via `INITIAL_USER` /
 then closes automatically. Each user gets their own settings and chat history,
 stored under `./data/users/`.
 
-The `INITIAL_USER` account is the **admin**: it sees a 👥 *Users* button next to its
+The `INITIAL_USER` account is the **admin**: it sees a *Users* button next to its
 name in the header, which opens a list of all registered users with their last
 login date/time. If the account already existed before this feature was added,
 it is promoted to admin automatically on the next start.
@@ -104,7 +106,7 @@ gitignored, so secrets never end up in the repo). Useful environment variables:
 | `SESSION_DAYS` | `7` | session idle timeout (sliding — any activity extends it) |
 | `DATA_KEY` | off | if set, per-user chat data is encrypted at rest (AES-256-GCM) |
 | `ALLOW_REGISTER` | on | set to `0` to disable self-registration |
-| `INITIAL_USER` / `INITIAL_PASSWORD` | — | pre-create an account on first boot (password ≥ 8 chars); this account is the admin (👥 *Users* button) |
+| `INITIAL_USER` / `INITIAL_PASSWORD` | — | pre-create an account on first boot (password ≥ 8 chars); this account is the admin (*Users* button) |
 | `FORCE_SECURE` | off | set to `1` if TLS is terminated in front of the server |
 
 Security notes: passwords are hashed with scrypt (per-user salt, constant-time
@@ -138,6 +140,6 @@ same machine.
 
 Note: `localStorage` is per browser *and* per origin (`file://` vs `http://localhost:8000`
 are different stores), and has a ~5–10 MB quota. If it fills up, the app shows a warning
-bar — export chats to file (⬇ / MD) or delete old ones. File export/import has no size
+bar — export chats to file (download / MD) or delete old ones. File export/import has no size
 limit, so that's also the way to keep very large conversations: export → free space in
-the browser → re-import later via ⬆ Import.
+the browser → re-import later via Import.
