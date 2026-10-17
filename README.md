@@ -33,9 +33,10 @@ around it. The app detects automatically which mode it's in — no configuration
 - **Collapsible chat list**: the menu button in the header hides/shows the sidebar so the conversation gets the full width — on small screens (≤ 760px, e.g. smartphones) it starts hidden by default; your choice is remembered per browser
 - **Save / load to file**: select a chat in the sidebar — the download button saves it as JSON (incl. reasoning, re-importable via Import), `MD` exports it as Markdown (reasoning is omitted)
 - **Regenerate / branch**: on the last answer, regenerate (replaces it); on one of your messages, branch off into a new chat with the history up to that point (ending at the previous complete answer — your message is not carried over). On touch devices these actions are always visible
+- **Inline error handling**: a failed request stays in the chat as a red error bubble with a **Retry** button; an interrupted stream keeps the partial answer and notes it was cut off
 - **Context usage bar**: shows estimated token usage of the current chat vs. the model's context length (read from `/v1/models`), turns yellow at 70% and red at 90%, with a warning near/over the limit; hidden while usage is low
 - Optional API key and system prompt, both persisted — edited in a settings dialog (⚙ / Esc closes)
-- Minimal offline markdown rendering (code blocks, inline code, bold/italic, links) — code blocks get a language label and a **Copy** button
+- Minimal **offline** markdown rendering — headings, bullet/ordered lists, tables, blockquotes, code blocks, inline code, bold/italic, links, and LaTeX math (`$\rightarrow$`, `$\alpha$`, `$x^2$`, …) converted to Unicode. No external libraries; everything is escaped (no raw HTML). Code blocks get a language label and a **Copy** button
 - **Mobile-friendly**: two-row header, full-width model picker, touch-friendly action buttons, no iOS input zoom; a scroll-to-bottom button appears while reading during long replies
 - **Mode 2 only:** username + password login, per-user chat history stored on the
   server, up to 10 users by default (see below)
@@ -82,6 +83,10 @@ The `INITIAL_USER` account is the **admin**: it sees a *Users* button next to it
 name in the header, which opens a list of all registered users with their last
 login date/time. If the account already existed before this feature was added,
 it is promoted to admin automatically on the next start.
+
+Chats **sync across devices** for the same account: the server keeps a revision
+counter and the UI polls it (cheap `ETag`/`304` checks, every few seconds and on
+tab focus), so a conversation open on your phone and your laptop stays in step.
 
 <details>
 <summary><b>No Docker?</b> Run the backend directly with Node.js (≥ 18)</summary>
