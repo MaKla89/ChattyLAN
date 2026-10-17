@@ -162,6 +162,7 @@ body.nav-closed #sidebar{width:0;border-right:none}
 .copyBtn svg{width:12px;height:12px}
 .bubble code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .bubble :not(pre)>code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:.92em}
+.bubble .math{font-family:ui-serif,Georgia,"Times New Roman",serif;font-style:italic}
 details.reasoning{border:1px solid var(--border);border-left:3px solid var(--ambBd);background:transparent;border-radius:8px;max-width:100%}
 details.reasoning summary{cursor:pointer;padding:6px 12px;font-size:12px;color:var(--amb);user-select:none}
 details.reasoning .rmeta{color:var(--muted);font-weight:400;margin-left:8px;font-size:11px}
@@ -571,6 +572,49 @@ function setStatus(cls,text){const s=$('#status');s.className=(cls||'')+(s.class
 
 /* ---------- minimal markdown (offline, no deps) ---------- */
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+/* Models frequently emit LaTeX math ($...$, \(...\), \[...\] with \commands). No math
+   engine is allowed (CSP blocks external scripts), so map common commands to Unicode. */
+const TEXMAP={rightarrow:'\u2192',Rightarrow:'\u21d2',leftarrow:'\u2190',Leftarrow:'\u21d0',leftrightarrow:'\u2194',Leftrightarrow:'\u21d4',to:'\u2192',gets:'\u2190',mapsto:'\u21a6',times:'\u00d7',div:'\u00f7',cdot:'\u00b7',ast:'\u2217',circ:'\u2218',bullet:'\u2219',pm:'\u00b1',mp:'\u2213',leq:'\u2264',le:'\u2264',geq:'\u2265',ge:'\u2265',neq:'\u2260',ne:'\u2260',equiv:'\u2261',approx:'\u2248',cong:'\u2245',sim:'\u223c',propto:'\u221d',infty:'\u221e',partial:'\u2202',nabla:'\u2207',in:'\u2208',notin:'\u2209',ni:'\u220b',subset:'\u2282',subseteq:'\u2286',supset:'\u2283',supseteq:'\u2287',cup:'\u222a',cap:'\u2229',setminus:'\u2216',emptyset:'\u2205',varnothing:'\u2205',forall:'\u2200',exists:'\u2203',neg:'\u00ac',land:'\u2227',lor:'\u2228',wedge:'\u2227',vee:'\u2228',oplus:'\u2295',otimes:'\u2297',perp:'\u22a5',parallel:'\u2225',angle:'\u2220',degree:'\u00b0',prime:'\u2032',hbar:'\u210f',ell:'\u2113',Re:'\u211c',Im:'\u2111',aleph:'\u2135',ldots:'\u2026',cdots:'\u22ef',vdots:'\u22ee',ddots:'\u22f1',dots:'\u2026',alpha:'\u03b1',beta:'\u03b2',gamma:'\u03b3',delta:'\u03b4',epsilon:'\u03b5',varepsilon:'\u03b5',zeta:'\u03b6',eta:'\u03b7',theta:'\u03b8',vartheta:'\u03d1',iota:'\u03b9',kappa:'\u03ba',lambda:'\u03bb',mu:'\u03bc',nu:'\u03bd',xi:'\u03be',pi:'\u03c0',rho:'\u03c1',sigma:'\u03c3',varsigma:'\u03c2',tau:'\u03c4',upsilon:'\u03c5',phi:'\u03c6',varphi:'\u03d5',chi:'\u03c7',psi:'\u03c8',omega:'\u03c9',Gamma:'\u0393',Delta:'\u0394',Theta:'\u0398',Lambda:'\u039b',Xi:'\u039e',Pi:'\u03a0',Sigma:'\u03a3',Upsilon:'\u03a5',Phi:'\u03a6',Psi:'\u03a8',Omega:'\u03a9',langle:'\u27e8',rangle:'\u27e9',lceil:'\u2308',rceil:'\u2309',lfloor:'\u230a',rfloor:'\u230b',therefore:'\u2234',because:'\u2235',checkmark:'\u2713',dagger:'\u2020',pmod:' mod ',bmod:' mod ',sum:'\u2211',prod:'\u220f',int:'\u222b',oint:'\u222e',coprod:'\u2210',pounds:'\u00a3',copyright:'\u00a9',textdegree:'\u00b0'};
+const SUP={'0':'\u2070','1':'\u00b9','2':'\u00b2','3':'\u00b3','4':'\u2074','5':'\u2075','6':'\u2076','7':'\u2077','8':'\u2078','9':'\u2079','+':'\u207a','-':'\u207b','=':'\u207c','(':'\u207d',')':'\u207e','n':'\u207f','i':'\u2071'};
+const SUB={'0':'\u2080','1':'\u2081','2':'\u2082','3':'\u2083','4':'\u2084','5':'\u2085','6':'\u2086','7':'\u2087','8':'\u2088','9':'\u2089','+':'\u208a','-':'\u208b','=':'\u208c','(':'\u208d',')':'\u208e','n':'\u2099','a':'\u2090','e':'\u2091','k':'\u2096','l':'\u2097','m':'\u2098','p':'\u209a','s':'\u209b','t':'\u209c','x':'\u2093'}; // no subscript i/j in Unicode
+const convScript=(s,map)=>{const a=[...s].map(c=>map[c]);return a.every(c=>c!==undefined)?a.join(''):null};
+function tex(x){
+  x=x.replace(/\s*\n\s*/g,' ');
+  // literal escapes: protect \{ \} from the brace-stripping at the end (\u0003/\u0004 placeholders)
+  x=x.replace(/\\([%$&#_{}])/g,(m,c)=>c==='{'?'\u0003':c==='}'?'\u0004':c);
+  x=x.replace(/\\[dtc]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g,'($1)/($2)');
+  x=x.replace(/\\sqrt\s*\{([^{}]*)\}/g,'\u221a($1)');
+  x=x.replace(/\\(?:text|textbf|textit|textrm|textsf|mathrm|mathbf|mathit|mathsf|mathtt|mathcal|mathbb|mathfrak|boldsymbol|operatorname)\s*\{([^{}]*)\}/g,'$1');
+  x=x.replace(/\\(?:widehat|hat)\s*\{([^{}]*)\}/g,'$1\u0302').replace(/\\vec\s*\{([^{}]*)\}/g,'$1\u20d7').replace(/\\(?:overline|bar)\s*\{([^{}]*)\}/g,'$1\u0305').replace(/\\tilde\s*\{([^{}]*)\}/g,'$1\u0303').replace(/\\dot\s*\{([^{}]*)\}/g,'$1\u0307');
+  // (?![a-zA-Z]) so \big doesn't eat the prefix of \bigstar and \right not of \rightarrow
+  x=x.replace(/\\(?:left|right|middle|biggl|biggr|Biggl|Biggr|bigl|bigr|Bigl|Bigr|bigg|Bigg|big|Big|displaystyle|textstyle|scriptstyle|limits|nolimits)(?![a-zA-Z])/g,'');
+  x=x.replace(/\\(?:qquad|quad)(?![a-zA-Z])/g,' ');
+  x=x.replace(/\\[,;:!]/g,' ');
+  x=x.replace(/\\\\/g,' '); // LaTeX line break inside math
+  x=x.replace(/\^\{([^{}]+)\}/g,(m,s)=>convScript(s,SUP)||'^('+s+')');
+  x=x.replace(/_\{([^{}]+)\}/g,(m,s)=>convScript(s,SUB)||'_('+s+')');
+  x=x.replace(/\^([0-9a-zA-Z+-])/g,(m,c)=>SUP[c]||'^'+c);
+  x=x.replace(/_([0-9a-zA-Z+-])/g,(m,c)=>SUB[c]||'_'+c);
+  x=x.replace(/\\([a-zA-Z]+)/g,(m,w)=>TEXMAP[w]!==undefined?TEXMAP[w]:'\\'+w);
+  x=x.replace(/[{}]/g,'');
+  return x.replace(/\u0003/g,'{').replace(/\u0004/g,'}').trim();
+}
+/* Bare LaTeX in prose (not wrapped in $): convert only whitelisted commands so regex
+   snippets, Windows paths etc. in normal text stay untouched. Braces are kept unless
+   part of a converted command. */
+function texPlain(x){
+  x=x.replace(/\\[dtc]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g,'($1)/($2)');
+  x=x.replace(/\\sqrt\s*\{([^{}]*)\}/g,'\u221a($1)');
+  x=x.replace(/\\(?:widehat|hat)\s*\{([^{}]*)\}/g,'$1\u0302').replace(/\\vec\s*\{([^{}]*)\}/g,'$1\u20d7').replace(/\\(?:overline|bar)\s*\{([^{}]*)\}/g,'$1\u0305').replace(/\\tilde\s*\{([^{}]*)\}/g,'$1\u0303').replace(/\\dot\s*\{([^{}]*)\}/g,'$1\u0307');
+  x=x.replace(/\\(?:text|textbf|textit|textrm|textsf|mathrm|mathbf|mathit|mathsf|mathtt|mathcal|mathbb|mathfrak|boldsymbol|operatorname)\s*\{([^{}]*)\}/g,'$1');
+  x=x.replace(/\\(?:left|right|middle|biggl|biggr|Biggl|Biggr|bigl|bigr|Bigl|Bigr|bigg|Bigg|big|Big|displaystyle|textstyle|scriptstyle)(?![a-zA-Z])/g,'');
+  x=x.replace(/\\(?:qquad|quad)(?![a-zA-Z])/g,' ');
+  // literal escapes (\% \& \$ \# \_ \{ \}) — note & already became &amp; via esc()
+  x=x.replace(/\\([%$&#_{}])/g,'$1');
+  // 'to' excluded: \to in bare prose is usually a Windows path (C:\to\...), not an arrow
+  x=x.replace(/\\([a-zA-Z]+)/g,(m,w)=>TEXMAP[w]!==undefined&&w!=='to'?TEXMAP[w]:m);
+  return x;
+}
 function md(src){
   let s=(src||'').trim();
   const fence=s.match(/^```(?:markdown|md)\n([\s\S]*)\n?```\s*$/i);
@@ -585,10 +629,57 @@ function md(src){
     codes.push('<code>'+c+'</code>');
     return '\u0000'+(codes.length-1)+'\u0000';
   });
+  // Extract math before block/inline parsing so $ or \ inside math can't confuse it.
+  // Currency like "$5 and $10" is skipped: math must not start/end with whitespace.
+  const maths=[];
+  const pushMath=x=>{maths.push('<span class="math">'+tex(x)+'</span>');return '\u0002'+(maths.length-1)+'\u0002'};
+  t=t.replace(/\$\$([\s\S]+?)\$\$/g,(m,x)=>pushMath(x));
+  t=t.replace(/\\\[([\s\S]+?)\\\]/g,(m,x)=>pushMath(x));
+  t=t.replace(/\\\(([\s\S]+?)\\\)/g,(m,x)=>pushMath(x));
+  t=t.replace(/(?<![\\$])\$(?![\s$])([^$\n]+?)(?<!\s)\$(?!\d)/g,(m,x)=>{
+    // currency runs like "$4x und 100$": digit-led + spaces but no math syntax -> not math
+    if(/^\d/.test(x)&&/\s/.test(x)&&!/[\\=^_{}()\[\]]/.test(x))return m;
+    return pushMath(x);
+  });
   const inline=x=>x
     .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
     .replace(/(^|[\s(])\*([^*\n]+)\*/g,'$1<em>$2</em>')
+    // plain-text scripts like 2^{10} or H_{2}O (outside math) — braced form only, so
+    // bare ^ or _ in regex-ish prose is left alone
+    .replace(/\^\{([^{}]+)\}/g,(m,s)=>convScript(s,SUP)||m)
+    .replace(/_\{([^{}]+)\}/g,(m,s)=>convScript(s,SUB)||m)
+    // command + its {arg}s as a unit (\frac{a}{b} has two); unknown commands keep them.
+    // bare \\ and \, left alone in prose (Windows paths, regexes) — they stay literal
+    .replace(/\\[a-zA-Z]+(?:\s*\{[^{}]*\})*/g,m=>texPlain(m))
+    // literal LaTeX escapes in prose: \% \$ \# \_ \{ \} and \& (already &amp; via esc)
+    .replace(/\\&amp;/g,'&amp;')
+    .replace(/\\([%$#_{}])/g,'$1')
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,(m,txt,url)=>'<a href="'+url.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener">'+txt+'</a>');
+  // Render a block line-by-line so mixed content (paragraph + list, heading in the
+  // middle, ...) works. List markers allow any amount of whitespace after them
+  // (models often emit "*   item"), and ordered lists may use "1)" too.
+  const isH=l=>/^#{1,6} \S/.test(l);
+  const isUl=l=>/^[-*+]\s+/.test(l);
+  const isOl=l=>/^\d+[.)]\s+/.test(l);
+  const isBq=l=>/^&gt;/.test(l);
+  const isHr=l=>/^ *(?:-{3,}|\*{3,}|_{3,}) *$/.test(l);
+  const isCodePh=l=>/^\u0000\d+\u0000$/.test(l);
+  const special=l=>isH(l)||isUl(l)||isOl(l)||isBq(l)||isHr(l)||isCodePh(l);
+  const renderLines=lines=>{
+    let out='';let i=0;
+    while(i<lines.length){
+      const l=lines[i];
+      if(isCodePh(l)){out+=l;i++;continue} // fenced code: emit standalone, never inside <p>
+      if(isHr(l)){out+='<hr/>';i++;continue}
+      if(isH(l)){const h=l.match(/^(#{1,6}) (.+)$/);out+='<h'+h[1].length+'>'+inline(h[2])+'</h'+h[1].length+'>';i++;continue}
+      if(isUl(l)){const it=[];while(i<lines.length&&isUl(lines[i])){it.push(lines[i].replace(/^[-*+]\s+/,''));i++}out+='<ul>'+it.map(x=>'<li>'+inline(x)+'</li>').join('')+'</ul>';continue}
+      if(isOl(l)){const it=[];while(i<lines.length&&isOl(lines[i])){it.push(lines[i].replace(/^\d+[.)]\s+/,''));i++}out+='<ol>'+it.map(x=>'<li>'+inline(x)+'</li>').join('')+'</ol>';continue}
+      if(isBq(l)){const it=[];while(i<lines.length&&isBq(lines[i])){it.push(lines[i].replace(/^&gt;\s?/,''));i++}out+='<blockquote>'+it.map(x=>inline(x)).join('<br>')+'</blockquote>';continue}
+      const buf=[];while(i<lines.length&&!special(lines[i])){buf.push(lines[i]);i++}
+      out+='<p>'+inline(buf.join('\n')).replace(/\n/g,'<br>')+'</p>';
+    }
+    return out;
+  };
   t=t.split(/\n{2,}/).map(block=>{
     block=block.trim();
     if(!block)return'';
@@ -608,30 +699,14 @@ function md(src){
       let html='<table><thead><tr>'+head.map((c,i)=>cell(c,i,'th')).join('')+'</tr></thead>';
       if(rows.length)html+='<tbody>'+rows.map(r=>'<tr>'+r.map((c,i)=>cell(c,i,'td')).join('')+'</tr>').join('')+'</tbody>';
       html+='</table>';
-      const renderSeg=ls=>{let out='',buf=[];const flush=()=>{if(buf.length){out+='<p>'+inline(buf.join('\n')).replace(/\n/g,'<br>')+'</p>';buf=[]}};for(const l of ls){const hh=l.match(/^(#{1,6}) (.+)$/);if(hh){flush();out+='<h'+hh[1].length+'>'+inline(hh[2])+'</h'+hh[1].length+'>';}else buf.push(l)}flush();return out};
-      const pre=ti>0?renderSeg(lines.slice(0,ti)):'';
-      const post=end<lines.length?renderSeg(lines.slice(end)):'';
+      const pre=ti>0?renderLines(lines.slice(0,ti)):'';
+      const post=end<lines.length?renderLines(lines.slice(end)):'';
       return pre+html+post;
     }
-    if(lines.length===1){
-      const h=lines[0].match(/^(#{1,6}) (.+)$/);
-      if(h)return '<h'+h[1].length+'>'+inline(h[2])+'</h'+h[1].length+'>';
-      if(/^(-{3,}|\*{3,}|_{3,})$/.test(lines[0]))return '<hr/>';
-    }
-    const hl=lines[0].match(/^(#{1,6}) (.+)$/);
-    if(hl){
-      const rest=lines.slice(1).join('\n').trim();
-      return '<h'+hl[1].length+'>'+inline(hl[2])+'</h'+hl[1].length+'>'+(rest?'<p>'+inline(rest).replace(/\n/g,'<br>')+'</p>':'');
-    }
-    if(lines.every(l=>/^[-*+] /.test(l)))
-      return '<ul>'+lines.map(l=>'<li>'+inline(l.slice(2))+'</li>').join('')+'</ul>';
-    if(lines.every(l=>/^\d+\. /.test(l)))
-      return '<ol>'+lines.map(l=>'<li>'+inline(l.replace(/^\d+\. /,''))+'</li>').join('')+'</ol>';
-    if(lines.every(l=>/^&gt; ?/.test(l)))
-      return '<blockquote>'+lines.map(l=>inline(l.replace(/^&gt; ?/,''))).join('<br>')+'</blockquote>';
-    return '<p>'+inline(block).replace(/\n/g,'<br>')+'</p>';
+    return renderLines(lines);
   }).filter(Boolean).join('');
   t=t.replace(/\u0000(\d+)\u0000/g,(m,i)=>codes[+i]);
+  t=t.replace(/\u0002(\d+)\u0002/g,(m,i)=>maths[+i]);
   return t;
 }
 /* Add a language label + copy button above every rendered code block. */
