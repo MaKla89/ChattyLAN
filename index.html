@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <!-- No external resources are loaded; network access is fetch() to the user-configured server, plus same-origin /api/* calls when served by server.js. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' http: https:; img-src blob: data:"/>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' http: https:; img-src blob: data:; form-action 'self'"/>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2315181d'/%3E%3Cpath d='M18 14H46A8 8 0 0 1 54 22V36A8 8 0 0 1 46 44H26L16 52V44H18A8 8 0 0 1 10 36V22A8 8 0 0 1 18 14Z' fill='%234c8dff'/%3E%3Ccircle cx='22' cy='29' r='3.2' fill='%2315181d'/%3E%3Ccircle cx='32' cy='29' r='3.2' fill='%2315181d'/%3E%3Ccircle cx='42' cy='29' r='3.2' fill='%2315181d'/%3E%3C/svg%3E"/>
 <title>ChattyLAN</title>
 <style>
@@ -465,6 +465,8 @@ async function doAuth(){
 }
 function showUserChip(){$('#userName').textContent=loggedInUser||'';$('#usersBox').style.display=isAdmin?'flex':'none';$('#userChip').style.display='block'}
 async function logout(){
+  if(streaming&&aborter)aborter.abort(); // stop the stream BEFORE flipping modes, else its
+  // finally-block would save the server user's chats into local mode's localStorage
   try{await fetch('api/logout',{method:'POST'})}catch{}
   serverMode=false;loggedInUser=null;isAdmin=false;models=[];
   serverRev=0;dirty=false;
@@ -785,12 +787,12 @@ function renderChatList(){
     n.onclick=e=>{e.stopPropagation();startRename(c,d,t)};
     const s=document.createElement('span');s.className='icon saveIco';s.innerHTML=svg(ICONS.down);s.title='Save chat to file (JSON)';
     s.onclick=e=>{e.stopPropagation();downloadChat(c)};
-    const md=document.createElement('span');md.className='icon mdIco';md.textContent='MD';md.title='Export as Markdown';
-    md.onclick=e=>{e.stopPropagation();downloadChatMd(c)};
+    const mdi=document.createElement('span');mdi.className='icon mdIco';mdi.textContent='MD';mdi.title='Export as Markdown';
+    mdi.onclick=e=>{e.stopPropagation();downloadChatMd(c)};
     const x=document.createElement('span');x.className='icon del';x.innerHTML=svg(ICONS.x);x.title='Delete chat';
     x.onclick=e=>{e.stopPropagation();deleteChat(c.id)};
     d.onclick=()=>{activeId=c.id;save();renderChatList();renderMessages()};
-    d.appendChild(t);d.appendChild(n);d.appendChild(s);d.appendChild(md);d.appendChild(x);el.appendChild(d);
+    d.appendChild(t);d.appendChild(n);d.appendChild(s);d.appendChild(mdi);d.appendChild(x);el.appendChild(d);
   }
 }
 
@@ -1071,6 +1073,18 @@ async function generate(chat){
   }
 
   streaming=true;setStreamingUI(true);aborter=new AbortController();
+  // Re-render at most once per animation frame. Running md() over the whole
+  // accumulated reply for every SSE chunk is O(n^2) and visibly janks on long
+  // answers. Code-block copy bars are added by the final renderMessages() instead.
+  let rafId=0;
+  const renderStream=()=>{
+    if(rafId)return;
+    rafId=requestAnimationFrame(()=>{
+      rafId=0;
+      live.contentBox.innerHTML=md(am.content);
+      scrollBottom();
+    });
+  };
   try{
     const res=await fetch(normalizeBase(settings.baseUrl)+'/chat/completions',{
       method:'POST',signal:aborter.signal,headers:authHeaders(),
@@ -1106,8 +1120,7 @@ async function generate(chat){
             live.contentBox.classList.add('stream');
           }
           am.content+=delta.content;
-          live.contentBox.innerHTML=md(am.content);
-          enhanceCodeBlocks(live.contentBox);
+          renderStream();
         }
         const r=delta.reasoning_content!==undefined?delta.reasoning_content:delta.reasoning;
         if(r){
@@ -1127,9 +1140,12 @@ async function generate(chat){
     }
   }finally{
     streaming=false;setStreamingUI(false);aborter=null;
+    if(rafId)cancelAnimationFrame(rafId);
     live.contentBox.classList.remove('typing','stream');
     if(live.details){live.details.classList.remove('streaming');if(!am.reasoning)live.details.remove();else live.details.open=false;}
-    save();renderMessages();
+    // only persist/render if this chat is still the active one — after logout or a chat
+    // switch, saving here would write this chat's data into the wrong mode's storage
+    if(activeChat()===chat){save();renderMessages()}
     // Some backends (e.g. Unsloth Studio) only report context_length for the model
     // currently loaded in memory — after a request that model is loaded, so re-fetch
     // to pick up its limit (and any newly available models).
@@ -1265,7 +1281,9 @@ input.addEventListener('input',()=>{
 authForm.addEventListener('submit',e=>{e.preventDefault();doAuth()});
 $('#logoutBtn').onclick=()=>logout();
 window.addEventListener('beforeunload',()=>{
-  if(serverMode){try{navigator.sendBeacon('api/data',new Blob([JSON.stringify({settings,chats,activeId})],{type:'application/json'}))}catch{}}
+  // only flush genuinely pending changes — an unconditional beacon on every page close
+  // bumps the server rev and can clobber what another device wrote in the meantime
+  if(serverMode&&dirty){try{navigator.sendBeacon('api/data',new Blob([JSON.stringify({settings,chats,activeId})],{type:'application/json'}))}catch{}}
 });
 (async()=>{
   await initAuth();

@@ -62,14 +62,36 @@ const USERS_FILE=path.join(DATA_DIR,'users.json');
 const SESSIONS_FILE=path.join(DATA_DIR,'sessions.json');
 
 /* ---------- persistence ---------- */
-function loadJSON(file,d){try{return JSON.parse(fs.readFileSync(file,'utf8'))}catch{return d}}
+/* A corrupt users/sessions file must never look like "no users": the next save
+   would then overwrite (destroy) the real data. On parse failure the damaged
+   file is moved aside and the server refuses to start until it is restored. */
+function loadJSON(file,d){
+  let raw;try{raw=fs.readFileSync(file,'utf8')}catch{return d} // missing file -> default
+  try{return JSON.parse(raw)}
+  catch(e){
+    const bad=file+'.corrupt-'+new Date().toISOString().replace(/[:.]/g,'-');
+    try{fs.renameSync(file,bad)}catch{}
+    console.error('FATAL: '+file+' is not valid JSON ('+e.message+'). Moved it to '+bad+
+      ' — restore or delete that file and restart. Refusing to start with empty user/session data.');
+    process.exit(1);
+  }
+}
+/* Atomic replace: write a temp file in the same dir, then rename over the
+   target. A crash mid-write leaves the previous file intact instead of a
+   truncated one. mode 0600: users.json holds password hashes, sessions.json
+   live session tokens, user files hold chat history (and API keys). */
+function writeFileAtomic(file,data){
+  const tmp=file+'.'+process.pid+'.tmp';
+  fs.writeFileSync(tmp,data,{mode:0o600});
+  fs.renameSync(tmp,file);
+}
 let users=loadJSON(USERS_FILE,{});    // key(lowercase) -> {name, salt, hash, admin?, lastLogin?}
-let sessions=loadJSON(SESSIONS_FILE,{}); // token -> {user, exp}
+let sessions=loadJSON(SESSIONS_FILE,{}); // token -> {user, exp, savedAt?}
 {const n=Object.keys(sessions).length;
  for(const t of Object.keys(sessions))if(sessions[t].exp<Date.now())delete sessions[t];
  if(Object.keys(sessions).length!==n)saveSessions();} // persist the purge
-function saveUsers(){fs.writeFileSync(USERS_FILE,JSON.stringify(users,null,2))}
-function saveSessions(){fs.writeFileSync(SESSIONS_FILE,JSON.stringify(sessions,null,2))}
+function saveUsers(){writeFileAtomic(USERS_FILE,JSON.stringify(users,null,2))}
+function saveSessions(){writeFileAtomic(SESSIONS_FILE,JSON.stringify(sessions,null,2))}
 
 /* per-user chat data (encrypted at rest when DATA_KEY is set).
    Throws on key mismatch so a wrong key can never be masked as "empty data"
@@ -85,7 +107,7 @@ function loadUserData(file){
 }
 function saveUserData(file,obj){
   const buf=Buffer.from(JSON.stringify(obj));
-  fs.writeFileSync(file,DATA_KEY_BUF?encBuf(buf):buf);
+  writeFileAtomic(file,DATA_KEY_BUF?encBuf(buf):buf);
 }
 
 /* ---------- passwords (scrypt) ---------- */
@@ -118,7 +140,7 @@ if(process.env.INITIAL_USER){
 }
 
 /* ---------- login throttle (per IP) ---------- */
-const fails=new Map(); // ip -> {n, until}
+const fails=new Map(); // ip -> {n, until, t}
 function throttled(ip){
   const f=fails.get(ip);
   if(!f)return false;
@@ -127,11 +149,18 @@ function throttled(ip){
   return false;
 }
 function noteFail(ip){
-  const f=fails.get(ip)||{n:0,until:0};
-  f.n++;
+  const f=fails.get(ip)||{n:0,until:0,t:0};
+  f.n++;f.t=Date.now();
   if(f.n>=5)f.until=Date.now()+15*60e3; // 5 failures -> 15 min lockout
   fails.set(ip,f);
 }
+// drop entries idle for over an hour so the Map can't grow without bound
+// (one entry per IP that ever failed a login otherwise). An hour is longer
+// than the lockout, so no pending penalty is lost.
+setInterval(()=>{
+  const now=Date.now();
+  for(const [ip,f] of fails)if(now-f.t>3600e3)fails.delete(ip);
+},3600e3).unref();
 
 /* ---------- helpers ---------- */
 function validUsername(u){return typeof u==='string'&&/^[A-Za-z0-9][A-Za-z0-9_.-]{1,31}$/.test(u)}
@@ -148,7 +177,8 @@ function readBody(req){
 async function readJSON(req){
   const body=await readBody(req);
   if(!body)return{};
-  return JSON.parse(body);
+  try{return JSON.parse(body)}
+  catch{const e=new Error('invalid JSON');e.status=400;throw e} // caller maps to 400, not 500
 }
 function json(res,code,obj,headers={}){
   const body=JSON.stringify(obj);
@@ -159,7 +189,11 @@ function parseCookies(req){
   const out={};
   for(const part of (req.headers.cookie||'').split(';')){
     const i=part.indexOf('=');
-    if(i>0)out[part.slice(0,i).trim()]=decodeURIComponent(part.slice(i+1).trim());
+    if(i>0){
+      // a malformed % escape must not throw (URIError) and 500 every request from that client
+      let v;try{v=decodeURIComponent(part.slice(i+1).trim())}catch{v=part.slice(i+1).trim()}
+      out[part.slice(0,i).trim()]=v;
+    }
   }
   return out;
 }
@@ -173,17 +207,33 @@ function currentUser(req,res){
   if(sessions[t].exp<Date.now()){delete sessions[t];saveSessions();return null}
   // sliding: extend the session and re-issue the cookie so the browser's
   // Max-Age slides with it (otherwise the client would drop out after one
-  // fixed SESSION_DAYS window even while actively used)
-  sessions[t].exp=Date.now()+SESSION_MS;
-  saveSessions();
+  // fixed SESSION_DAYS window even while actively used). The in-memory exp
+  // slides on every request, but the disk write is throttled — with the UI
+  // polling every few seconds, writing sessions.json per request is pure
+  // flash wear on a NAS and a race between concurrent requests.
+  const now=Date.now();
+  sessions[t].exp=now+SESSION_MS;
+  if(!sessions[t].savedAt||now-sessions[t].savedAt>60e3){
+    sessions[t].savedAt=now;
+    saveSessions();
+  }
   res.setHeader('Set-Cookie',sessionCookie(t,isSecure(req)));
   return sessions[t].user;
 }
 function newSession(res,req,key){
   const token=crypto.randomBytes(32).toString('hex');
-  sessions[token]={user:key,exp:Date.now()+SESSION_MS};
+  sessions[token]={user:key,exp:Date.now()+SESSION_MS,savedAt:Date.now()};
   saveSessions();
   res.setHeader('Set-Cookie',sessionCookie(token,isSecure(req)));
+}
+
+/* ---------- static HTML (cached; re-read when index.html changes on disk) ---------- */
+const INDEX_FILE=path.join(__dirname,'index.html');
+let htmlCache=null,htmlMtime=0;
+function readIndexHtml(){
+  let st;try{st=fs.statSync(INDEX_FILE)}catch{return null}
+  if(!htmlCache||st.mtimeMs!==htmlMtime){htmlCache=fs.readFileSync(INDEX_FILE);htmlMtime=st.mtimeMs}
+  return htmlCache;
 }
 
 /* ---------- server ---------- */
@@ -197,7 +247,7 @@ const server=http.createServer(async(req,res)=>{
 
     if(url.pathname==='/api/register'&&req.method==='POST'){
       if(!regOpen())return json(res,403,{error:'Registration is closed (user limit reached or disabled).'});
-      const j=await readJSON(req);
+      let j;try{j=await readJSON(req)}catch{return json(res,400,{error:'invalid JSON'})}
       const u=(j.username||'').trim(),p=j.password;
       if(!validUsername(u))return json(res,400,{error:'Username must be 2\u201332 chars: letters, digits, _ . -'});
       if(typeof p!=='string'||p.length<8||p.length>128)return json(res,400,{error:'Password must be 8\u2013128 characters.'});
@@ -212,7 +262,7 @@ const server=http.createServer(async(req,res)=>{
 
     if(url.pathname==='/api/login'&&req.method==='POST'){
       if(throttled(ip))return json(res,429,{error:'Too many failed attempts \u2014 try again in 15 minutes.'});
-      const j=await readJSON(req);
+      let j;try{j=await readJSON(req)}catch{return json(res,400,{error:'invalid JSON'})}
       const u=(j.username||'').trim().toLowerCase(),p=j.password;
       const rec=users[u];
       if(!rec||typeof p!=='string'||!verifyPassword(p,rec)){
@@ -286,14 +336,20 @@ const server=http.createServer(async(req,res)=>{
     }
 
     if(url.pathname==='/'||url.pathname==='/index.html'){
-      const html=fs.readFileSync(path.join(__dirname,'index.html'));
-      res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','X-Content-Type-Options':'nosniff'});
+      // served from memory: read once at startup (or if index.html is swapped, by mtime)
+      const html=readIndexHtml();
+      if(!html)return json(res,500,{error:'index.html is missing next to server.js'});
+      res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache',
+        'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'no-referrer',
+        // frame-ancestors is ignored in a <meta> CSP, so enforce framing via headers too
+        'Content-Security-Policy':"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' http: https:; img-src blob: data:; frame-ancestors 'none'; form-action 'self'"});
       return res.end(html);
     }
 
     json(res,404,{error:'not found'});
   }catch(e){
-    json(res,500,{error:'internal error'});
+    console.error(req.method+' '+req.url+' ->',e&&e.stack||e); // client still gets a generic message
+    json(res,e&&e.status||500,{error:e&&e.status?e.message:'internal error'});
   }
 });
 

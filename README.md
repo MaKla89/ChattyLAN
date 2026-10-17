@@ -72,7 +72,9 @@ docker compose up -d --build
 On a **Synology** NAS: *Container Manager → Project → Add*, point it at this folder
 (it picks up `docker-compose.yml` automatically). The image is plain `node:alpine`,
 so any Docker-capable NAS works. Chat data persists in `./data` (a volume), so
-upgrades and container rebuilds don't lose anything.
+upgrades and container rebuilds don't lose anything. The container runs as an
+unprivileged user (uid 1000) — with the `./data` bind mount, make it writable once:
+`chown -R 1000:1000 data`.
 
 On first visit you create an account (or pre-create one via `INITIAL_USER` /
 `INITIAL_PASSWORD` in `.env`); registration stays open until 10 accounts exist,
@@ -117,7 +119,12 @@ gitignored, so secrets never end up in the repo). Useful environment variables:
 Security notes: passwords are hashed with scrypt (per-user salt, constant-time
 compare), sessions use random 256-bit tokens in `HttpOnly; SameSite=Lax` cookies,
 and there's a per-IP lockout after 5 failed logins. Set `DATA_KEY` to encrypt chat
-data at rest (AES-256-GCM); without it the per-user data files are plain JSON.
+data at rest (AES-256-GCM); without it the per-user data files are plain JSON —
+they also contain the upstream LLM **API key** you entered in the settings, so
+setting `DATA_KEY` is recommended. All data files are written atomically and with
+`0600` permissions; if `users.json` is ever found corrupt it is moved to
+`users.json.corrupt-*` and the server refuses to start rather than silently
+overwriting it (restore or delete that file). Back up the `./data` folder regularly.
 This is "simple yet secure" for a trusted LAN — it is not hardened against
 internet exposure (put it behind TLS if you do that).
 
@@ -136,7 +143,8 @@ same machine.
 ## Data & privacy
 
 - **Mode 2** (Docker / `server.js`): settings + chat history are stored per user
-  under `DATA_DIR/users/<user>.json`. Nothing leaves your LAN except the chat
+  under `DATA_DIR/users/<user>.json` — this includes the upstream LLM API key
+  entered in the settings dialog. Nothing leaves your LAN except the chat
   requests themselves. Deleting a user's file wipes their data. Set `DATA_KEY`
   to encrypt these files at rest (AES-256-GCM); by default they are plain JSON.
 - **Mode 1** (static hosting / `file://`): everything lives in your browser's
