@@ -72,9 +72,9 @@ docker compose up -d --build
 On a **Synology** NAS: *Container Manager → Project → Add*, point it at this folder
 (it picks up `docker-compose.yml` automatically). The image is plain `node:alpine`,
 so any Docker-capable NAS works. Chat data persists in `./data` (a volume), so
-upgrades and container rebuilds don't lose anything. The container runs as an
-unprivileged user (uid 1000) — with the `./data` bind mount, make it writable once:
-`chown -R 1000:1000 data`.
+upgrades and container rebuilds don't lose anything. Inside the container the
+server listens on port 8080 (unprivileged); the `ports:` mapping exposes it on
+the host's 8080.
 
 On first visit you create an account (or pre-create one via `INITIAL_USER` /
 `INITIAL_PASSWORD` in `.env`); registration stays open until 10 accounts exist,
@@ -95,7 +95,7 @@ tab focus), so a conversation open on your phone and your laptop stays in step.
 
 ```sh
 cd ChattyLAN
-node server.js            # → open http://localhost:80
+node server.js            # → open http://localhost:80 (or PORT=8080 node server.js)
 ```
 
 Same behavior, same env vars — data goes to `./data` next to `server.js`.
@@ -107,7 +107,7 @@ gitignored, so secrets never end up in the repo). Useful environment variables:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `PORT` / `HOST` | `80` / `0.0.0.0` | listen address |
+| `PORT` / `HOST` | `80` / `0.0.0.0` | listen address (`docker-compose` sets `PORT=8080` inside the container — unprivileged, so it works on Docker daemons that forbid binding ports below 1024; reach it via the `ports:` mapping) |
 | `DATA_DIR` | `./data` | where users/sessions/chat data are stored |
 | `MAX_USERS` | `10` | registration cap |
 | `SESSION_DAYS` | `7` | session idle timeout (sliding — any activity extends it) |

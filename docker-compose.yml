@@ -18,7 +18,7 @@ services:
     container_name: chattylan
     restart: unless-stopped
     ports:
-      - "8080:80"          # change the left side to your preferred port
+      - "8080:8080"        # change the left side to your preferred port (container listens on 8080)
     environment:
       - MAX_USERS=10
       - SESSION_DAYS=7
