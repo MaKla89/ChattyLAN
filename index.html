@@ -95,7 +95,9 @@ header input{background:var(--panel2);border:1px solid var(--border);color:var(-
 #status.err .dot{background:var(--err)}
 #status.busy .dot{background:var(--accent);animation:busyPulse 1.3s ease-out infinite}
 @keyframes busyPulse{0%{box-shadow:0 0 0 0 rgba(76,141,255,.55)}70%{box-shadow:0 0 0 6px rgba(76,141,255,0)}100%{box-shadow:0 0 0 0 rgba(76,141,255,0)}}
-#main{flex:1;display:flex;min-height:0}
+/* overflow:hidden: a child that is wider than the viewport would give the whole document a
+   horizontal scroll range, which on phones turns a swipe into "panning the page" */
+#main{flex:1;display:flex;min-height:0;overflow:hidden}
 #sidebar{width:230px;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;transition:width .18s ease}
 body.nav-closed #sidebar{width:0;border-right:none}
 #newChat,#importBtn{margin:0 10px;padding:7px;border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:7px;transition:border-color .15s ease,background .15s ease}
@@ -186,11 +188,13 @@ details.reasoning.streaming .rdots{display:inline-block}
 #ctxWarn.danger{background:var(--errBg);border-color:var(--errBd);color:var(--errTx)}
 .ctxBar{max-width:900px;margin:0 auto 6px;width:calc(100% - 32px);display:flex;align-items:center;gap:10px}
 .ctxBar.idle{display:none}
-.ctxTrack{flex:1;height:4px;background:var(--panel2);border:1px solid var(--border);border-radius:4px;overflow:hidden}
+.ctxTrack{flex:1 1 auto;min-width:0;height:4px;background:var(--panel2);border:1px solid var(--border);border-radius:4px;overflow:hidden}
 .ctxFill{height:100%;width:0;background:var(--ok);transition:width .25s ease,background-color .25s ease}
 .ctxBar.warn .ctxFill{background:#e0b341}
 .ctxBar.danger .ctxFill{background:var(--err)}
-.ctxLabel{font-size:10.5px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+/* min-width:0 + ellipsis: the label is long ("… no context limit known for this model") and a
+   nowrap flex item refuses to shrink by default, which would overflow the composer on phones */
+.ctxLabel{font-size:10.5px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .ctxBar.warn .ctxLabel{color:#e0b341}
 .ctxBar.danger .ctxLabel{color:var(--err)}
 #composer{border-top:1px solid var(--border);background:var(--panel);padding:12px 0 18px}
@@ -1286,14 +1290,37 @@ if(navMq.addEventListener)navMq.addEventListener('change',()=>{
   let stored=null;try{stored=localStorage.getItem(LS.nav)}catch{}
   if(stored===null){navOpen=navDefaultOpen();applyNav(navOpen)}
 });
-/* Narrow screens: a tap anywhere in the conversation closes the sidebar, like swiping it away.
-   Interactive elements (links, message actions, code copy, composer) are excluded so a tap
-   there does its normal job instead. Not persisted — the next reload restores the stored state. */
+/* Narrow screens: a tap anywhere in the conversation closes the sidebar, and a horizontal
+   swipe left/right closes/reopens it. Interactive elements (links, message actions, code copy,
+   composer) are excluded so a tap there does its normal job instead. Not persisted — the next
+   reload restores the stored state. */
+let swipeTs=0; // suppress the click a swipe can synthesise right after touchend
 $('#chatPane').addEventListener('click',e=>{
+  if(Date.now()-swipeTs<600)return;
   if(!navOpen||!navMq.matches)return;
   if(e.target.closest('#composer,#scrollBottomBtn,a,button,summary,input,textarea,select'))return;
   navOpen=false;applyNav(false);
 });
+{
+  let tx=0,ty=0,tt=0,skip=false;
+  const pane=$('#main'); // #main, not #chatPane: with the drawer open on a phone the pane is
+  // only ~160px wide, so the swipe must also be recognisable on the sidebar itself
+  pane.addEventListener('touchstart',e=>{
+    if(e.touches.length!==1)return;
+    const t=e.touches[0];tx=t.clientX;ty=t.clientY;tt=Date.now();
+    // code blocks and tables scroll sideways — a swipe starting there must not toggle the sidebar
+    skip=!!e.target.closest('#composer,pre,table,.bubble a');
+  },{passive:true});
+  pane.addEventListener('touchend',e=>{
+    if(skip||!navMq.matches)return;
+    const t=e.changedTouches[0],dx=t.clientX-tx,dy=t.clientY-ty;
+    if(Date.now()-tt>700)return;
+    // clearly horizontal and long enough to be a swipe, not a tap or a vertical scroll
+    if(Math.abs(dx)<56||Math.abs(dx)<Math.abs(dy)*1.6)return;
+    if(dx<0&&navOpen){navOpen=false;applyNav(false);swipeTs=Date.now()}
+    else if(dx>0&&!navOpen){navOpen=true;applyNav(true);swipeTs=Date.now()}
+  },{passive:true});
+}
 /* Status pill: only the traffic light shows; clicking/tapping it reveals the text
    (long status strings would otherwise wrap the header into two rows on phones). */
 {const st=$('#status');
