@@ -147,6 +147,10 @@ body.nav-closed #sidebar{width:0;border-right:none}
 .nbBtn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .nbBtn.primary:hover{background:var(--accent2)}
 .nbNote{font-size:12.5px;color:var(--warnTx);background:var(--warnBg);border:1px solid var(--warnBd);border-radius:8px;padding:8px 12px}
+.nbCtl{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+.nbCtl select{background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 9px;font-size:13px;cursor:pointer}
+.nbCtl select:focus{outline:none;border-color:var(--accent)}
+.nbCtl .nbHint{color:var(--amb)}
 .nbSumCard{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-size:14px;line-height:1.6}
 .nbSumCard .bubble p:first-child{margin-top:0}
 .nbSumEmpty{color:var(--muted);font-size:13px}
@@ -940,16 +944,23 @@ document.addEventListener('click',e=>{if(!e.target.closest('#moveMenu'))closeMov
    Full regeneration from the current chats — no incremental logic, since the
    user triggers it explicitly. Each chat transcript is truncated oldest-first
    so the total prompt stays bounded. */
-const NB_SUMMARY_CAP=4000;   // chars stored per notebook summary (server caps at 4000 too)
-const NB_CHAT_CAP=1500;      // est. tokens per chat transcript fed to the summariser
-function nbTranscript(c){
+const NB_SUMMARY_CAP=8000;   // hard ceiling on stored summary chars (server caps at 8000 too)
+/* Per-notebook detail level: scales the word budget in the prompt, how much of each
+   chat transcript is fed in, and the storage cap. "standard" matches the old default. */
+const NB_DETAIL={
+  brief:   {label:'Brief',    words:250,  chatTok:800,  cap:2500},
+  standard:{label:'Standard', words:500,  chatTok:1500, cap:4000},
+  detailed:{label:'Detailed', words:1000, chatTok:3000, cap:8000}
+};
+function nbDetail(nb){return NB_DETAIL[nb&&nb.detail]||NB_DETAIL.standard}
+function nbTranscript(c,chatTok){
   const L=[];
   for(const m of c.messages){
     if(!m.content)continue;
     L.push((m.role==='user'?'User: ':'Assistant: ')+m.content);
   }
   let s=L.join('\n');
-  const cap=NB_CHAT_CAP*3; // chars/3 estimate, same as estTokens()
+  const cap=chatTok*3; // chars/3 estimate, same as estTokens()
   if(s.length>cap)s='[earlier messages omitted]\n'+s.slice(-cap);
   return s;
 }
@@ -959,14 +970,15 @@ async function generateNotebookSummary(nb){
   if(!settings.model){showError('Pick a model first.');return}
   const inner=notebookChats(nb.id);
   if(!inner.length){showError('This notebook has no chats yet.');return}
-  const parts=inner.map(c=>'### Chat: '+c.title+'\n'+nbTranscript(c));
+  const det=nbDetail(nb);
+  const parts=inner.map(c=>'### Chat: '+c.title+'\n'+nbTranscript(c,det.chatTok));
   const sys='You write compact summaries of a collection of AI conversations for an AI assistant, '+
     'which will use them as background context when answering future questions in this collection. '+
     'Be factual and dense. Keep decisions, facts, names, numbers, file paths, code conclusions and open '+
     'questions. Skip greetings and small talk. Never invent anything that is not in the transcripts.';
   const user='Summarise this notebook.\n\nNotebook title: '+nb.title+'\n\n'+parts.join('\n\n')+
     '\n\nFormat: 2-3 lines of overall context first, then one bullet per chat starting with its title. '+
-    'Maximum 250 words in total. Answer in the language the chats are written in.';
+    'Maximum '+det.words+' words in total. Answer in the language the chats are written in.';
   summaryBusy=true;renderMessages();
   const abort=new AbortController();
   const timer=setTimeout(()=>abort.abort(),120000);
@@ -983,7 +995,8 @@ async function generateNotebookSummary(nb){
     const j=await res.json();
     const txt=j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content;
     if(!txt||!String(txt).trim())throw new Error('The model returned an empty summary.');
-    nb.summary=String(txt).trim().slice(0,NB_SUMMARY_CAP);
+    nb.summary=String(txt).trim().slice(0,Math.min(NB_SUMMARY_CAP,det.cap));
+    nb.summaryDetail=det.label;
     nb.summaryAt=Date.now();
     nb.covered={};
     for(const c of inner)nb.covered[c.id]=c.messages.length;
@@ -1360,6 +1373,31 @@ function renderNotebookOverview(){
   };
   actions.appendChild(ren);
   wrap.appendChild(actions);
+
+  /* summary detail level — per notebook, applies to the NEXT generation */
+  const det=nbDetail(nb);
+  const ctl=document.createElement('div');ctl.className='nbCtl';
+  const ctlLabel=document.createElement('label');ctlLabel.textContent='Summary detail';ctlLabel.htmlFor='nbDetailSel';
+  const sel=document.createElement('select');sel.id='nbDetailSel';
+  for(const key of ['brief','standard','detailed']){
+    const o=document.createElement('option');o.value=key;o.textContent=NB_DETAIL[key].label;
+    o.selected=(nb.detail||'standard')===key;
+    sel.appendChild(o);
+  }
+  sel.onchange=()=>{
+    nb.detail=sel.value;
+    save();renderChatList();renderMessages();
+  };
+  ctl.appendChild(ctlLabel);ctl.appendChild(sel);
+  const detHint=document.createElement('span');
+  detHint.textContent='\u2248 '+det.words+' words \u00B7 applies when you update the summary';
+  ctl.appendChild(detHint);
+  if(nb.summary&&nb.summaryDetail&&nb.summaryDetail!==det.label){
+    const h=document.createElement('span');h.className='nbHint';
+    h.textContent='\u2022 current summary was generated at \u201C'+nb.summaryDetail+'\u201D detail';
+    ctl.appendChild(h);
+  }
+  wrap.appendChild(ctl);
 
   if(stale&&nb.summary){
     const n=document.createElement('div');n.className='nbNote';
