@@ -327,10 +327,13 @@ const server=http.createServer(async(req,res)=>{
           digestTok:Number.isFinite(c?.digestTok)?c.digestTok:0,
           digestSourceCap:Number.isFinite(c?.digestSourceCap)?c.digestSourceCap:0,
           digestAt:Number.isFinite(c?.digestAt)?c.digestAt:0,
+          digestVer:Number.isFinite(c?.digestVer)?c.digestVer:0,
           messages:Array.isArray(c&&c.messages)?c.messages.slice(0,2000).map(m=>({
             role:m&&m.role==='user'?'user':'assistant',
             content:m&&typeof m.content==='string'?m.content:'',
-            reasoning:m&&typeof m.reasoning==='string'?m.reasoning:''
+            reasoning:m&&typeof m.reasoning==='string'?m.reasoning:'',
+            // when the message was written — the notebook summary uses this for recency
+            ts:Number.isFinite(m&&m.ts)?m.ts:0
           })):[],
         })):[],
         notebooks:Array.isArray(j.notebooks)?j.notebooks.slice(0,50).map(n=>({

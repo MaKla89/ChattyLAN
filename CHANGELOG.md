@@ -3,6 +3,30 @@
 All notable changes to ChattyLAN are documented here.
 Versions follow the git tags (`v1.0` …); the newest entry may still be unreleased.
 
+## v1.5.3 — Timestamps and temporal context
+
+- Every new message now carries an absolute timestamp. The notebook summary can finally use
+  time: each chat block is labelled with the dates it ran on, transcripts get a `[YYYY-MM-DD]`
+  marker on the first message of each new day, and the summariser is told that **the chat with
+  the later dates wins** — previously that rule was unenforceable because the model never saw a
+  date anywhere
+- Pass 2 now receives the chats **oldest first**, so document order matches chronology. Before,
+  chats reached the model newest-first, which could just as easily make it pick the oldest one
+- Cached per-chat digests are tagged with a format version, so digests written before timestamps
+  existed are regenerated once instead of being reused without dates
+- Backfill: messages written before this version have no recorded time, so the summary derives
+  one by spreading them between the chat's creation and its newest known stamp. That guess is
+  never stored and never shown in the UI — the message header only displays a real timestamp
+- The live chat context gets the same day markers (free when the whole chat happened today), and
+  the notebook injection now states today's date next to the summary's "as of" date
+- Markdown export gains day headings and per-message times; JSON export keeps `ts` (bumped to
+  format version 2, and import reads it back). Mode 2: `ts` is persisted by the server
+- Message headers show the time (hover for the full date); omission notes in a truncated
+  transcript name the time gap, e.g. *[30 middle messages omitted · 2026-11-08 → 2026-11-15]*
+- **Bugfix:** a transcript that exceeded its budget dropped its *head* and returned only the
+  tail — the overlap check was inverted, so the "keep the first 25% and the last 75%" behaviour
+  never actually happened. Truncation now keeps both ends as documented
+
 ## v1.5.2 — Merged notebook summaries
 
 - The second pass now writes **one coherent summary** of what has been going on across the

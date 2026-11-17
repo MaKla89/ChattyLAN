@@ -186,6 +186,7 @@ body.nav-closed #sidebar{width:0;border-right:none}
 .mhead{display:flex;align-items:center;gap:8px;min-height:22px}
 .msg.user .mhead{flex-direction:row-reverse}
 .msg .who{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin:0 2px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.msg .mwhen{font-size:11px;color:var(--muted);opacity:.75;white-space:nowrap;cursor:default}
 .msg.user .bubble{background:var(--userBg);border:1px solid var(--userBd);border-radius:16px 16px 4px 16px;padding:9px 13px;white-space:pre-wrap;word-wrap:break-word;font-size:15px;line-height:1.6}
 .msg.assistant .bubble{background:none;border:none;border-radius:0;padding:2px 2px 2px 0;word-wrap:break-word;font-size:15px;line-height:1.6}
 .msg.assistant .bubble.err{background:var(--errBg);border:1px solid var(--errBd);border-radius:12px;padding:10px 14px;color:var(--errTx);white-space:pre-wrap}
@@ -972,14 +973,76 @@ function nbSourceCap(det){
   if(m&&m.ctx)cap=Math.min(cap,Math.floor(m.ctx*0.6));
   return Math.max(1500,cap);
 }
+/* ---------- message timestamps ----------
+   Every message carries an absolute epoch-ms `ts`, so the model can reason about WHEN
+   things happened and not merely in what order they were written. Messages created
+   before timestamps existed have none; msgTimes(chat,true) backfills those by spreading
+   them between the chat's creation and its newest known stamp. That guess is derived on
+   the fly and never stored, which keeps the UI honest: it only ever shows a time that is
+   actually recorded. Dates handed to the model are ISO-style (YYYY-MM-DD) — locale-free,
+   so "03/04" can never be misread as the wrong calendar date. */
+function msgTimes(chat,guess){
+  const ms=chat&&Array.isArray(chat.messages)?chat.messages:[];
+  const out=new Array(ms.length).fill(0);
+  if(!ms.length)return out;
+  const real=i=>{const t=ms[i]&&ms[i].ts;return Number.isFinite(t)&&t>0?t:0};
+  if(!guess){for(let i=0;i<ms.length;i++)out[i]=real(i);return out}
+  let hi=Date.now();
+  for(let i=0;i<ms.length;i++)if(real(i)>hi)hi=real(i);
+  let lo=chatTime(chat);
+  if(!lo||lo>hi)lo=hi-ms.length*60e3; // unknown creation -> just space them a minute apart
+  let prev=lo,i=0;
+  while(i<ms.length){
+    const t=real(i);
+    if(t){out[i]=t;prev=t;i++;continue}
+    let j=i;while(j<ms.length&&!real(j))j++;
+    const a=prev,b=j<ms.length?real(j):hi,k=j-i; // interpolate the run between its bounds
+    for(let q=0;q<k;q++)out[i+q]=a+Math.round(Math.max(0,b-a)*(q+1)/(k+1));
+    prev=out[j-1];i=j;
+  }
+  return out;
+}
+const pad2=n=>(n<10?'0':'')+n;
+function fmtDate(ts){const d=new Date(ts);return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())}
+function fmtTime(ts){const d=new Date(ts);return pad2(d.getHours())+':'+pad2(d.getMinutes())}
+function fmtDateTime(ts){return fmtDate(ts)+' '+fmtTime(ts)}
+/* When a conversation ran, for the headers the summariser sees */
+function chatSpan(c){
+  const t=msgTimes(c,true);
+  if(!t.length)return 0;
+  return {from:t[0],to:t[t.length-1]};
+}
+function spanLabel(s){
+  if(!s)return'';
+  return fmtDate(s.from)===fmtDate(s.to)
+    ?fmtDate(s.from)+' '+fmtTime(s.from)+'\u2013'+fmtTime(s.to)
+    :fmtDate(s.from)+' \u2192 '+fmtDate(s.to);
+}
+/* "[2026-11-17] " on the first message of each new day only. A chat that happened
+   entirely today costs the model almost nothing; one that spans a week stays legible.
+   Unknown times (guess=false) get no marker rather than an invented one. */
+function dayMarks(times){
+  const marks=new Array(times.length).fill('');
+  let day='';
+  for(let i=0;i<times.length;i++){
+    if(!times[i])continue;
+    const d=fmtDate(times[i]);
+    if(d!==day){marks[i]='['+d+'] ';day=d}
+  }
+  return marks;
+}
 /* Transcript for pass 1. If it exceeds the budget, keep the first ~25% and the last
    ~75% whole (message boundaries, never mid-message): early decisions and recent
-   conclusions both survive, only the discussion in between is dropped. */
+   conclusions both survive, only the discussion in between is dropped. The dropped
+   stretch is named by its dates, so the summariser can see how big the time gap is. */
 function nbTranscript(c,tokCap){
-  const parts=[];
-  for(const m of c.messages){
+  const times=msgTimes(c,true), marks=dayMarks(times);
+  const parts=[], ptimes=[];
+  for(let i=0;i<c.messages.length;i++){
+    const m=c.messages[i];
     if(!m.content)continue;
-    parts.push((m.role==='user'?'User: ':'Assistant: ')+m.content);
+    ptimes.push(times[i]);
+    parts.push(marks[i]+(m.role==='user'?'User: ':'Assistant: ')+m.content);
   }
   let s=parts.join('\n');
   const cap=tokCap*3; // chars/3 estimate, same as estTokens()
@@ -989,10 +1052,14 @@ function nbTranscript(c,tokCap){
   for(;i<parts.length&&hl+parts[i].length<=head;i++){h.push(parts[i]);hl+=parts[i].length}
   const t=[];let tl=0,j=parts.length-1;
   for(;j>=0&&tl+parts[j].length<=tail;j--){t.unshift(parts[j]);tl+=parts[j].length}
-  if(j>=i-1){ // one huge message ate the whole budget -> tail only
-    return '[earlier messages omitted]\n'+t.join('\n');
-  }
-  return h.join('\n')+'\n\n['+(j-i+1)+' middle messages omitted]\n\n'+t.join('\n');
+  /* head covers 0..i-1, tail covers j+1..end, so the omitted stretch is i..j and is empty
+     exactly when j<i. Only a single oversized message can make the tail empty — in that case
+     keep a slice of it, instead of the old `j>=i-1` test, which fired whenever messages
+     really were omitted and threw the whole head away. */
+  if(!t.length)return '[earlier messages omitted]\n'+parts[parts.length-1].slice(0,tail);
+  if(j<i)return parts.join('\n'); // head and tail already cover everything
+  const gap=ptimes[i]&&ptimes[j]?' \u00B7 '+fmtDate(ptimes[i])+' \u2192 '+fmtDate(ptimes[j]):'';
+  return h.join('\n')+'\n\n['+(j-i+1)+' middle messages omitted'+gap+']\n\n'+t.join('\n');
 }
 /* one streaming chat completion, resolves with the full text; onDelta gets the running
    text so callers can paint progress. `signal` lets the caller's idle timeout abort it. */
@@ -1029,6 +1096,9 @@ async function nbCompletion(messages,armIdle,onDelta,signal){
   if(!text.trim())throw new Error('The model returned an empty answer.');
   return text.trim();
 }
+/* bump when the digest prompt or transcript format changes, so cached digests
+   produced by the old format are regenerated instead of being reused as-is */
+const DIGEST_VER=2;
 async function generateNotebookSummary(nb){
   if(summaryBusy)return;
   if(!normalizeBase(settings.baseUrl)){showError('Enter a server URL first.');return}
@@ -1060,23 +1130,29 @@ async function generateNotebookSummary(nb){
     let digests=0;
     for(let i=0;i<inner.length;i++){
       const c=inner[i];
+      const span=spanLabel(chatSpan(c));
+      const when=span?'\nWhen this conversation took place: '+span+'. Dates in the transcript are '
+        +'exact; keep them attached to the facts they belong to.':'';
       const raw=nbTranscript(c,srcCap);
-      if(raw.length<=det.digestTok*3*1.5){ blocks.push('### Chat: '+c.title+'\n'+raw); continue }
-      const cached=c.digest&&c.digestMsgCount===c.messages.length&&c.digestTok===det.digestTok&&c.digestSourceCap===srcCap;
-      if(cached){ blocks.push('### Chat: '+c.title+'\n'+c.digest); continue }
+      if(raw.length<=det.digestTok*3*1.5){ blocks.push('### Chat: '+c.title+when+'\n'+raw); continue }
+      const cached=c.digest&&c.digestMsgCount===c.messages.length&&c.digestTok===det.digestTok&&
+        c.digestSourceCap===srcCap&&c.digestVer===DIGEST_VER;
+      if(cached){ blocks.push('### Chat: '+c.title+when+'\n'+c.digest); continue }
       summaryStatus='Digesting chat '+(i+1)+' of '+inner.length+': \u201C'+c.title+'\u201D'+(inner.length>1?' (pass 1)':'');
       paint();
       const dsys='You write a dense digest of ONE AI conversation. The digest will be read by another '+
         'AI assistant as background context, and by a summariser that merges several digests. '+
         'Keep every decision, fact, name, number, file path, code conclusion and open question. '+
+        'Lines beginning with a date in square brackets mark the day those messages were written. '+
         'Skip greetings and small talk. Never invent anything. Answer in the language of the conversation.';
-      const duser='Digest this conversation.\n\nChat title: '+c.title+'\n\n'+raw+
+      const duser='Digest this conversation.\n\nChat title: '+c.title+(span?'\nWhen it took place: '+span:'')+
+        '\n\n'+raw+
         '\n\nMaximum '+Math.max(80,Math.round(det.digestTok*0.75))+' words. Plain bullets, no preamble.';
       const txt=await nbCompletion([{role:'system',content:dsys},{role:'user',content:duser}],armIdle,null,abort.signal);
       c.digest=txt.slice(0,8000);c.digestMsgCount=c.messages.length;c.digestTok=det.digestTok;
-      c.digestSourceCap=srcCap;c.digestAt=Date.now();
+      c.digestSourceCap=srcCap;c.digestAt=Date.now();c.digestVer=DIGEST_VER;
       digests++;
-      blocks.push('### Chat: '+c.title+'\n'+c.digest);
+      blocks.push('### Chat: '+c.title+when+'\n'+c.digest);
     }
     /* ---- pass 2: the notebook summary, streamed into the overview ---- */
     summaryStatus=digests?('Composing the summary from '+digests+' digest'+(digests===1?'':'s')+'\u2026'):'Composing the summary\u2026';
@@ -1084,12 +1160,19 @@ async function generateNotebookSummary(nb){
     const sys='You write compact summaries of a collection of AI conversations for an AI assistant, '+
       'which will use them as background context when answering future questions in this collection. '+
       'Be factual and dense. Keep decisions, facts, names, numbers, file paths, code conclusions and open '+
-      'questions. Skip greetings and small talk. Never invent anything that is not in the material.';
-    const user='Summarise this notebook.\n\nNotebook title: '+nb.title+'\n\n'+blocks.join('\n\n')+
-      '\n\nWrite ONE coherent summary of what has been going on across these conversations: shared topics, '+
+      'questions. Each conversation is labelled with the dates it took place; keep those dates attached to '+
+      'the facts, so later statements can be told apart from earlier ones. Skip greetings and small talk. '+
+      'Never invent anything that is not in the material.';
+    /* Oldest conversation first: the blocks arrive in the order they happened, so "the more
+       recent one wins" is also the block that comes last — a model reading linearly gets the
+       tie-breaker for free instead of having to infer recency from a title. */
+    const dated=blocks.map((b,i)=>({b,t:chatSpan(inner[i])})).sort((x,y)=>(x.t?x.t.from:0)-(y.t?y.t.from:0));
+    const user='Summarise this notebook.\n\nNotebook title: '+nb.title+'\n\n'+dated.map(x=>x.b).join('\n\n')+
+      '\n\nThe conversations above are listed oldest first; each shows the dates it took place. '+
+      'Write ONE coherent summary of what has been going on across these conversations: shared topics, '+
       'decisions made, current state, open questions. Merge overlapping content instead of repeating it per '+
-      'conversation; when conversations disagree, the more recent one wins. Keep concrete facts, names and '+
-      'numbers. Maximum '+det.words+' words. Answer in the language the chats are written in.';
+      'conversation; when conversations disagree, the one with the later dates wins. Keep concrete facts, '+
+      'names and numbers. Maximum '+det.words+' words. Answer in the language the chats are written in.';
     summaryStream=await nbCompletion([{role:'system',content:sys},{role:'user',content:user}],armIdle,t=>{summaryStream=t;paint()},abort.signal);
     nb.summary=summaryStream.trim().slice(0,Math.min(NB_SUMMARY_CAP,det.cap));
     nb.summaryDetail=det.label;
@@ -1215,14 +1298,21 @@ function downloadText(name,text,mime){
 }
 function downloadChat(c){
   downloadText(safeName(c.title)+'.json',
-    JSON.stringify({app:'chatty-lan',version:1,title:c.title,savedAt:new Date().toISOString(),messages:c.messages},null,2),
+    JSON.stringify({app:'chatty-lan',version:2,title:c.title,savedAt:new Date().toISOString(),messages:c.messages},null,2),
     'application/json');
 }
 function chatToMarkdown(c){
   const L=['# '+(c.title||'Chat'),'','_Exported from ChattyLAN \u00B7 '+new Date().toISOString()+'_',''];
-  for(const m of c.messages){
+  const times=msgTimes(c,true);
+  let day='';
+  for(let i=0;i<c.messages.length;i++){
+    const m=c.messages[i];
     if(!m.content)continue;
-    L.push('## '+(m.role==='user'?'You':'Assistant'),'',m.content,'');
+    if(times[i]&&fmtDate(times[i])!==day){ // day heading, so the export reads chronologically
+      L.push('---','','_'+fmtDate(times[i])+'_','');day=fmtDate(times[i])
+    }
+    const at=times[i]?fmtTime(times[i]):'';
+    L.push('## '+(m.role==='user'?'You':'Assistant')+(at?' \u00B7 '+at:''),'',m.content,'');
   }
   return L.join('\n');
 }
@@ -1235,7 +1325,8 @@ function importChat(file){
       if(!Array.isArray(d.messages))throw new Error('not a ChattyLAN chat file');
       const msgs=d.messages
         .filter(m=>(m.role==='user'||m.role==='assistant')&&typeof m.content==='string'&&m.content)
-        .map(m=>({role:m.role,content:m.content,reasoning:typeof m.reasoning==='string'?m.reasoning:''}));
+        .map(m=>({role:m.role,content:m.content,reasoning:typeof m.reasoning==='string'?m.reasoning:'',
+          ts:Number.isFinite(m.ts)?m.ts:(typeof m.at==='string'&&Date.parse(m.at))||0}));
       if(!msgs.length)throw new Error('no valid messages in file');
       const c={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),
         title:(typeof d.title==='string'&&d.title)||'Imported chat',messages:msgs,createdAt:Date.now()};
@@ -1319,16 +1410,19 @@ function buildMessages(chat){
   if(nb&&nb.summary){
     const when=nb.summaryAt?new Date(nb.summaryAt).toLocaleDateString():'unknown date';
     out.push({role:'system',content:
-      '--- Shared context from notebook "'+nb.title+'" (summary as of '+when+'). '+
+      '--- Shared context from notebook "'+nb.title+'" (summary as of '+when+', today is '+fmtDate(Date.now())+'). '+
       'It summarises the other conversations in this notebook and may be outdated. '+
       'Use it as background; the current conversation always takes precedence. ---\n'+nb.summary+'\n---'});
   }
-  for(const m of chat.messages){
-    if(!m.content)continue;
-    const msg={role:m.role,content:m.content};
+  /* date markers on the first message of each new day: the model gets the temporal
+     shape of the conversation for ~0 tokens when everything happened today */
+  const marks=dayMarks(msgTimes(chat,false));
+  chat.messages.forEach((m,i)=>{
+    if(!m.content)return;
+    const msg={role:m.role,content:marks[i]+m.content};
     if(m.reasoning)msg.reasoning_content=m.reasoning;
     out.push(msg);
-  }
+  });
   return out;
 }
 
@@ -1373,6 +1467,14 @@ function msgEl(m,idx,isLast){
   const who=document.createElement('div');who.className='who';
   who.textContent=m.role==='user'?'You':'Assistant';
   head.appendChild(who);
+  /* only a recorded time is shown — older messages simply have none, rather than a
+     time invented for them. Hover gives the date, which matters in a long chat. */
+  if(Number.isFinite(m.ts)&&m.ts>0){
+    const ts=document.createElement('div');ts.className='mwhen';
+    ts.textContent=fmtTime(m.ts);
+    ts.title=fmtDateTime(m.ts);
+    head.appendChild(ts);
+  }
   if(icons)head.appendChild(icons);
   body.appendChild(head);
   if(m.role==='assistant'&&m.reasoning){
@@ -1588,7 +1690,7 @@ async function send(){
   if(!normalizeBase(settings.baseUrl)){showError('Enter a server URL first.');return}
   clearError();
   const chat=activeChat()||newChat();
-  chat.messages.push({role:'user',content:text});
+  chat.messages.push({role:'user',content:text,ts:Date.now()});
   if(chat.title==='New chat')chat.title=text.length>42?text.slice(0,42)+'\u2026':text;
   save();renderChatList();
   {const inp=$('#input');inp.value='';inp.style.height='auto';}
@@ -1610,12 +1712,12 @@ function branchAt(index){
   const c={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),
     title:src.title+' (branch)',
     notebookId:src.notebookId||null, // a branch stays in the same notebook (uncovered -> flagged stale)
-    messages:src.messages.slice(0,index).map(m=>({role:m.role,content:m.content,reasoning:m.reasoning||'',error:m.error||''}))};
+    messages:src.messages.slice(0,index).map(m=>({role:m.role,content:m.content,reasoning:m.reasoning||'',error:m.error||'',ts:Number.isFinite(m.ts)?m.ts:0}))};
   chats.unshift(c);activeId=c.id;view='chat';save();renderChatList();renderMessages();
 }
 
 async function generate(chat){
-  const am={role:'assistant',content:'',reasoning:''};
+  const am={role:'assistant',content:'',reasoning:'',ts:Date.now()};
   chat.messages.push(am);
   renderMessages();
   const sentCount=chat.messages.length-1; // messages actually sent (excl. the empty reply placeholder)
