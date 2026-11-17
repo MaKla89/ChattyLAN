@@ -321,6 +321,12 @@ const server=http.createServer(async(req,res)=>{
           title:String((c&&c.title)||'Chat').slice(0,200),
           createdAt:Number.isFinite(c&&c.createdAt)?c.createdAt:0,
           notebookId:typeof c?.notebookId==='string'?c.notebookId.slice(0,64):null,
+          // pass-1 digest cache for notebook summaries (regenerated when the chat changes)
+          digest:typeof c?.digest==='string'?c.digest.slice(0,8000):'',
+          digestMsgCount:Number.isFinite(c?.digestMsgCount)?c.digestMsgCount:0,
+          digestTok:Number.isFinite(c?.digestTok)?c.digestTok:0,
+          digestSourceCap:Number.isFinite(c?.digestSourceCap)?c.digestSourceCap:0,
+          digestAt:Number.isFinite(c?.digestAt)?c.digestAt:0,
           messages:Array.isArray(c&&c.messages)?c.messages.slice(0,2000).map(m=>({
             role:m&&m.role==='user'?'user':'assistant',
             content:m&&typeof m.content==='string'?m.content:'',

@@ -405,6 +405,7 @@ let nbOpenSet=new Set(); // notebooks expanded in the sidebar
 let summaryBusy=false;   // a notebook summary generation is in flight
 let summaryBusyNbId=null; // which notebook it belongs to
 let summaryStream='';    // text accumulated during the in-flight generation
+let summaryStatus='';    // progress line shown while pass 1 digests long chats
 let summaryLiveEl=null;  // the overview card to paint the streaming text into
 let models=[];
 let streaming=false,aborter=null;
@@ -943,32 +944,90 @@ function openMoveMenu(chatId,x,y){
 function closeMoveMenu(){$('#moveMenu').classList.remove('open')}
 document.addEventListener('click',e=>{if(!e.target.closest('#moveMenu'))closeMoveMenu()});
 
-/* ---------- notebook summary generation (manual, one call) ----------
-   Full regeneration from the current chats — no incremental logic, since the
-   user triggers it explicitly. Each chat transcript is truncated oldest-first
-   so the total prompt stays bounded. */
+/* ---------- notebook summary generation (manual, two passes) ----------
+   Pass 1 digests each *long* chat over its whole transcript (cached on the chat, so
+   repeat updates only re-digest chats that actually changed). Pass 2 composes the
+   notebook summary from those digests. Short chats are fed verbatim, so a small
+   notebook still costs exactly one call. */
 const NB_SUMMARY_CAP=32000;  // hard ceiling on stored summary chars (server caps at 32000 too)
-/* Per-notebook detail level: scales the word budget in the prompt, how much of each
-   chat transcript is fed in, and the storage cap. All three scale together (~16 chars
-   of summary and ~6 tokens of source per word) so a longer summary also gets the source
-   material and storage it needs. "standard" is the default. */
+/* Per-notebook detail level. Two-pass changes what the numbers mean:
+   words      -> length of the final notebook summary (pass 2)
+   digestTok  -> length of each per-chat digest (pass 1 output budget)
+   sourceTok  -> how much of a chat's raw transcript pass 1 may read (input budget)
+   cap        -> storage ceiling for the finished notebook summary
+   All scale together so a longer summary also gets longer digests and more source. */
 const NB_DETAIL={
-  brief:       {label:'Brief',         words:250,  chatTok:1500,  cap:4000},
-  standard:    {label:'Standard',      words:500,  chatTok:3000,  cap:8000},
-  detailed:    {label:'Detailed',      words:1000, chatTok:6000,  cap:16000},
-  verydetailed:{label:'Very detailed', words:2000, chatTok:12000, cap:32000}
+  brief:       {label:'Brief',         words:250,  digestTok:200,  sourceTok:6000,  cap:4000},
+  standard:    {label:'Standard',      words:500,  digestTok:400,  sourceTok:8000,  cap:8000},
+  detailed:    {label:'Detailed',      words:1000, digestTok:800,  sourceTok:12000, cap:16000},
+  verydetailed:{label:'Very detailed', words:2000, digestTok:1600, sourceTok:16000, cap:32000}
 };
 function nbDetail(nb){return NB_DETAIL[nb&&nb.detail]||NB_DETAIL.standard}
-function nbTranscript(c,chatTok){
-  const L=[];
+/* pass 1 must fit inside the model's own window — keep 40% free for the digest output
+   and instructions, otherwise long chats simply fail on small-context models */
+function nbSourceCap(det){
+  let cap=det.sourceTok;
+  let m=models.find(x=>x.id===settings.model);
+  if(!m)m=models.find(x=>x.id.toLowerCase()===(settings.model||'').toLowerCase());
+  if(m&&m.ctx)cap=Math.min(cap,Math.floor(m.ctx*0.6));
+  return Math.max(1500,cap);
+}
+/* Transcript for pass 1. If it exceeds the budget, keep the first ~25% and the last
+   ~75% whole (message boundaries, never mid-message): early decisions and recent
+   conclusions both survive, only the discussion in between is dropped. */
+function nbTranscript(c,tokCap){
+  const parts=[];
   for(const m of c.messages){
     if(!m.content)continue;
-    L.push((m.role==='user'?'User: ':'Assistant: ')+m.content);
+    parts.push((m.role==='user'?'User: ':'Assistant: ')+m.content);
   }
-  let s=L.join('\n');
-  const cap=chatTok*3; // chars/3 estimate, same as estTokens()
-  if(s.length>cap)s='[earlier messages omitted]\n'+s.slice(-cap);
-  return s;
+  let s=parts.join('\n');
+  const cap=tokCap*3; // chars/3 estimate, same as estTokens()
+  if(s.length<=cap)return s;
+  const head=Math.floor(cap*0.25), tail=cap-head;
+  const h=[];let hl=0,i=0;
+  for(;i<parts.length&&hl+parts[i].length<=head;i++){h.push(parts[i]);hl+=parts[i].length}
+  const t=[];let tl=0,j=parts.length-1;
+  for(;j>=0&&tl+parts[j].length<=tail;j--){t.unshift(parts[j]);tl+=parts[j].length}
+  if(j>=i-1){ // one huge message ate the whole budget -> tail only
+    return '[earlier messages omitted]\n'+t.join('\n');
+  }
+  return h.join('\n')+'\n\n['+(j-i+1)+' middle messages omitted]\n\n'+t.join('\n');
+}
+/* one streaming chat completion, resolves with the full text; onDelta gets the running
+   text so callers can paint progress. `signal` lets the caller's idle timeout abort it. */
+async function nbCompletion(messages,armIdle,onDelta,signal){
+  armIdle(180000); // generous window until the first token arrives (cold model, long prefill)
+  const res=await fetch(normalizeBase(settings.baseUrl)+'/chat/completions',{
+    method:'POST',signal,headers:authHeaders(),
+    body:JSON.stringify({model:settings.model,stream:true,messages})
+  });
+  if(!res.ok){
+    let d='';try{d=(await res.text()).slice(0,300)}catch{}
+    throw new Error('HTTP '+res.status+(d?' \u2014 '+d:''));
+  }
+  const reader=res.body.getReader();
+  const dec=new TextDecoder();
+  let buf='',text='';
+  while(true){
+    const {done,value}=await reader.read();
+    if(done)break;
+    armIdle(60000);
+    buf+=dec.decode(value,{stream:true});
+    let i;
+    while((i=buf.indexOf('\n'))>=0){
+      const line=buf.slice(0,i).trim();
+      buf=buf.slice(i+1);
+      if(!line.startsWith('data:'))continue;
+      const data=line.slice(5).trim();
+      if(data==='[DONE]')continue;
+      let j;try{j=JSON.parse(data)}catch{continue}
+      const delta=(j.choices&&j.choices[0]&&j.choices[0].delta)||{};
+      if(delta.content){text+=delta.content;if(onDelta)onDelta(text)}
+    }
+  }
+  if(!text.trim())throw new Error('The model returned an empty answer.');
+  return text.trim();
 }
 async function generateNotebookSummary(nb){
   if(summaryBusy)return;
@@ -977,59 +1036,59 @@ async function generateNotebookSummary(nb){
   const inner=notebookChats(nb.id);
   if(!inner.length){showError('This notebook has no chats yet.');return}
   const det=nbDetail(nb);
-  const parts=inner.map(c=>'### Chat: '+c.title+'\n'+nbTranscript(c,det.chatTok));
-  const sys='You write compact summaries of a collection of AI conversations for an AI assistant, '+
-    'which will use them as background context when answering future questions in this collection. '+
-    'Be factual and dense. Keep decisions, facts, names, numbers, file paths, code conclusions and open '+
-    'questions. Skip greetings and small talk. Never invent anything that is not in the transcripts.';
-  const user='Summarise this notebook.\n\nNotebook title: '+nb.title+'\n\n'+parts.join('\n\n')+
-    '\n\nFormat: 2-3 lines of overall context first, then one bullet per chat starting with its title. '+
-    'Maximum '+det.words+' words in total. Answer in the language the chats are written in.';
-  summaryBusy=true;summaryBusyNbId=nb.id;summaryStream='';summaryLiveEl=null;
-  renderMessages(); // overview shows "Writing the summary\u2026" and receives the live card
+  const srcCap=nbSourceCap(det);
+  summaryBusy=true;summaryBusyNbId=nb.id;summaryStream='';summaryStatus='';summaryLiveEl=null;
+  renderMessages(); // overview shows the progress line and receives the live card
   const abort=new AbortController();
   /* idle-based timeout instead of a wall-clock cap: local models can need minutes of
      prefill before the FIRST token arrives (generous window), but once tokens flow,
      60s of silence means the backend is gone. Every network chunk re-arms it. */
   let idleTimer=null;
   const armIdle=ms=>{clearTimeout(idleTimer);idleTimer=setTimeout(()=>abort.abort(),ms)};
-  armIdle(180000);
   let rafId=0;
   const paint=()=>{
     if(rafId||!summaryLiveEl)return;
-    rafId=requestAnimationFrame(()=>{rafId=0;summaryLiveEl.innerHTML=md(summaryStream)});
+    rafId=requestAnimationFrame(()=>{
+      rafId=0;
+      if(summaryStream)summaryLiveEl.innerHTML=md(summaryStream);
+      else{summaryLiveEl.innerHTML='';const p=document.createElement('div');p.className='nbSumEmpty';p.textContent=summaryStatus||'Preparing\u2026';summaryLiveEl.appendChild(p)}
+    });
   };
   try{
-    const res=await fetch(normalizeBase(settings.baseUrl)+'/chat/completions',{
-      method:'POST',signal:abort.signal,headers:authHeaders(),
-      body:JSON.stringify({model:settings.model,stream:true,
-        messages:[{role:'system',content:sys},{role:'user',content:user}]})
-    });
-    if(!res.ok){
-      let d='';try{d=(await res.text()).slice(0,300)}catch{}
-      throw new Error('HTTP '+res.status+(d?' \u2014 '+d:''));
+    /* ---- pass 1: per-chat digests (only for chats longer than the digest budget) ---- */
+    const blocks=[];
+    let digests=0;
+    for(let i=0;i<inner.length;i++){
+      const c=inner[i];
+      const raw=nbTranscript(c,srcCap);
+      if(raw.length<=det.digestTok*3*1.5){ blocks.push('### Chat: '+c.title+'\n'+raw); continue }
+      const cached=c.digest&&c.digestMsgCount===c.messages.length&&c.digestTok===det.digestTok&&c.digestSourceCap===srcCap;
+      if(cached){ blocks.push('### Chat: '+c.title+'\n'+c.digest); continue }
+      summaryStatus='Digesting chat '+(i+1)+' of '+inner.length+': \u201C'+c.title+'\u201D'+(inner.length>1?' (pass 1)':'');
+      paint();
+      const dsys='You write a dense digest of ONE AI conversation. The digest will be read by another '+
+        'AI assistant as background context, and by a summariser that merges several digests. '+
+        'Keep every decision, fact, name, number, file path, code conclusion and open question. '+
+        'Skip greetings and small talk. Never invent anything. Answer in the language of the conversation.';
+      const duser='Digest this conversation.\n\nChat title: '+c.title+'\n\n'+raw+
+        '\n\nMaximum '+Math.max(80,Math.round(det.digestTok*0.75))+' words. Plain bullets, no preamble.';
+      const txt=await nbCompletion([{role:'system',content:dsys},{role:'user',content:duser}],armIdle,null,abort.signal);
+      c.digest=txt.slice(0,8000);c.digestMsgCount=c.messages.length;c.digestTok=det.digestTok;
+      c.digestSourceCap=srcCap;c.digestAt=Date.now();
+      digests++;
+      blocks.push('### Chat: '+c.title+'\n'+c.digest);
     }
-    const reader=res.body.getReader();
-    const dec=new TextDecoder();
-    let buf='';
-    while(true){
-      const {done,value}=await reader.read();
-      if(done)break;
-      armIdle(60000);
-      buf+=dec.decode(value,{stream:true});
-      let i;
-      while((i=buf.indexOf('\n'))>=0){
-        const line=buf.slice(0,i).trim();
-        buf=buf.slice(i+1);
-        if(!line.startsWith('data:'))continue;
-        const data=line.slice(5).trim();
-        if(data==='[DONE]')continue;
-        let j;try{j=JSON.parse(data)}catch{continue}
-        const delta=(j.choices&&j.choices[0]&&j.choices[0].delta)||{};
-        if(delta.content){summaryStream+=delta.content;paint()}
-      }
-    }
-    if(!summaryStream.trim())throw new Error('The model returned an empty summary.');
+    /* ---- pass 2: the notebook summary, streamed into the overview ---- */
+    summaryStatus=digests?('Composing the summary from '+digests+' digest'+(digests===1?'':'s')+'\u2026'):'Composing the summary\u2026';
+    paint();
+    const sys='You write compact summaries of a collection of AI conversations for an AI assistant, '+
+      'which will use them as background context when answering future questions in this collection. '+
+      'Be factual and dense. Keep decisions, facts, names, numbers, file paths, code conclusions and open '+
+      'questions. Skip greetings and small talk. Never invent anything that is not in the material.';
+    const user='Summarise this notebook.\n\nNotebook title: '+nb.title+'\n\n'+blocks.join('\n\n')+
+      '\n\nFormat: 2-3 lines of overall context first, then one bullet per chat starting with its title. '+
+      'Maximum '+det.words+' words in total. Answer in the language the chats are written in.';
+    summaryStream=await nbCompletion([{role:'system',content:sys},{role:'user',content:user}],armIdle,t=>{summaryStream=t;paint()},abort.signal);
     nb.summary=summaryStream.trim().slice(0,Math.min(NB_SUMMARY_CAP,det.cap));
     nb.summaryDetail=det.label;
     nb.summaryAt=Date.now();
@@ -1037,11 +1096,11 @@ async function generateNotebookSummary(nb){
     for(const c of inner)nb.covered[c.id]=c.messages.length;
     clearError();
   }catch(e){
-    showError('Could not update the notebook summary: '+(e.name==='AbortError'?'no model response \u2014 timed out while waiting. The model may still be loading or the transcripts too long for its context. The previous summary is kept.':e.message));
+    showError('Could not update the notebook summary: '+(e.name==='AbortError'?'no model response \u2014 timed out while waiting. The model may still be loading, or a chat is too long for this model\u2019s context. The previous summary is kept; digests already computed are cached and reused.':e.message));
   }finally{
     clearTimeout(idleTimer);
     if(rafId)cancelAnimationFrame(rafId);
-    summaryBusy=false;summaryBusyNbId=null;summaryStream='';summaryLiveEl=null;
+    summaryBusy=false;summaryBusyNbId=null;summaryStream='';summaryStatus='';summaryLiveEl=null;
     save();renderChatList();
     if(view==='notebook'&&activeNotebook()===nb)renderMessages();
   }
@@ -1426,7 +1485,7 @@ function renderNotebookOverview(){
   };
   ctl.appendChild(ctlLabel);ctl.appendChild(sel);
   const detHint=document.createElement('span');
-  detHint.textContent='\u2248 '+det.words+' words \u00B7 applies when you update the summary';
+  detHint.textContent='\u2248 '+det.words+' words \u00B7 long chats are digested first \u00B7 applies when you update the summary';
   ctl.appendChild(detHint);
   if(nb.summary&&nb.summaryDetail&&nb.summaryDetail!==det.label){
     const h=document.createElement('span');h.className='nbHint';
@@ -1449,7 +1508,7 @@ function renderNotebookOverview(){
     // live target for the streaming summary — paint() writes md(summaryStream) here
     summaryLiveEl=card;
     if(summaryStream)card.innerHTML=md(summaryStream);
-    else{const p=document.createElement('div');p.className='nbSumEmpty';p.textContent='Writing the summary\u2026 it appears here as it is generated.';card.appendChild(p)}
+    else{const p=document.createElement('div');p.className='nbSumEmpty';p.textContent=summaryStatus||'Writing the summary\u2026 it appears here as it is generated.';card.appendChild(p)}
   }else if(nb.summary){
     card.innerHTML=md(nb.summary);
     enhanceCodeBlocks(card);
