@@ -1086,8 +1086,10 @@ async function generateNotebookSummary(nb){
       'Be factual and dense. Keep decisions, facts, names, numbers, file paths, code conclusions and open '+
       'questions. Skip greetings and small talk. Never invent anything that is not in the material.';
     const user='Summarise this notebook.\n\nNotebook title: '+nb.title+'\n\n'+blocks.join('\n\n')+
-      '\n\nFormat: 2-3 lines of overall context first, then one bullet per chat starting with its title. '+
-      'Maximum '+det.words+' words in total. Answer in the language the chats are written in.';
+      '\n\nWrite ONE coherent summary of what has been going on across these conversations: shared topics, '+
+      'decisions made, current state, open questions. Merge overlapping content instead of repeating it per '+
+      'conversation; when conversations disagree, the more recent one wins. Keep concrete facts, names and '+
+      'numbers. Maximum '+det.words+' words. Answer in the language the chats are written in.';
     summaryStream=await nbCompletion([{role:'system',content:sys},{role:'user',content:user}],armIdle,t=>{summaryStream=t;paint()},abort.signal);
     nb.summary=summaryStream.trim().slice(0,Math.min(NB_SUMMARY_CAP,det.cap));
     nb.summaryDetail=det.label;

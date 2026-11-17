@@ -3,6 +3,15 @@
 All notable changes to ChattyLAN are documented here.
 Versions follow the git tags (`v1.0` …); the newest entry may still be unreleased.
 
+## v1.5.2 — Merged notebook summaries
+
+- The second pass now writes **one coherent summary** of what has been going on across the
+  notebook's chats — shared topics, decisions, current state, open questions — instead of a
+  per-chat bullet list. Overlapping content is merged rather than repeated per conversation,
+  which uses the word budget far better; when conversations disagree, the more recent one wins
+- Per-chat digests (pass 1) are unchanged and still labelled by chat, so attribution and
+  recency stay intact
+
 ## v1.5.1 — Two-pass notebook summaries
 
 - Summarising a notebook now works in **two passes**: long chats are first condensed into a
