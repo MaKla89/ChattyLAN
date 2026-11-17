@@ -100,10 +100,11 @@ header input{background:var(--panel2);border:1px solid var(--border);color:var(-
 #main{flex:1;display:flex;min-height:0;overflow:hidden}
 #sidebar{width:230px;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;transition:width .18s ease}
 body.nav-closed #sidebar{width:0;border-right:none}
-#newChat,#importBtn{margin:0 10px;padding:7px;border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:7px;transition:border-color .15s ease,background .15s ease}
+#newChat,#newNotebook,#importBtn{margin:0 10px;padding:7px;border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:7px;transition:border-color .15s ease,background .15s ease}
 #newChat{margin-top:10px}
+#newNotebook{margin-top:10px}
 #importBtn{margin-bottom:10px}
-#newChat:hover,#importBtn:hover{border-color:var(--accent)}
+#newChat:hover,#newNotebook:hover,#importBtn:hover{border-color:var(--accent)}
 #chatList{flex:1;overflow-y:auto;padding:0 6px 10px}
 .chatGroup{position:sticky;top:0;z-index:2;background:var(--panel);color:var(--muted);font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;padding:9px 10px 4px}
 .chatItem{position:relative;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;color:var(--muted);display:flex;justify-content:space-between;gap:6px;align-items:center;margin-bottom:2px;transition:background .15s ease,color .15s ease}
@@ -120,6 +121,44 @@ body.nav-closed #sidebar{width:0;border-right:none}
 .chatItem .icon.mdIco:hover{color:var(--accent)}
 .chatItem .icon.del:hover{color:var(--err)}
 .renameInput{flex:1;min-width:0;background:var(--bg);border:1px solid var(--accent);color:var(--text);border-radius:4px;padding:2px 6px;font-size:13px}
+/* notebooks in the sidebar */
+.nbItem{color:var(--text);font-weight:600}
+.nbItem .nbChev{display:inline-flex;transition:transform .15s ease;transform:rotate(0deg)}
+.nbItem .nbChev.open{transform:rotate(90deg)}
+.nbItem .nbCount{font-size:10.5px;color:var(--muted);font-weight:400;margin-left:2px}
+.nbDot{width:7px;height:7px;border-radius:50%;background:var(--amb);flex-shrink:0}
+.chatItem.inNb .title{padding-left:10px;opacity:.95}
+.chatItem.inNb{border-left:2px solid var(--border);margin-left:8px;border-radius:0 7px 7px 0}
+#moveMenu{display:none;position:fixed;z-index:70;background:var(--panel2);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);padding:4px;min-width:180px;max-width:260px}
+#moveMenu.open{display:block}
+#moveMenu .mvHead{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;padding:5px 8px 3px}
+#moveMenu button{display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;color:var(--text);cursor:pointer;font-size:13px;padding:7px 8px;border-radius:5px;text-align:left}
+#moveMenu button:hover{background:var(--panel)}
+#moveMenu button.sel{color:var(--accent)}
+/* notebook overview (shown in the chat pane when a notebook is clicked) */
+.nbOverview{max-width:760px;margin:0 auto;padding:26px 16px;display:flex;flex-direction:column;gap:14px}
+.nbHead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.nbHead h2{margin:0;font-size:19px}
+.nbMeta{font-size:12.5px;color:var(--muted)}
+.nbActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}
+.nbBtn{background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 12px;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:border-color .15s ease}
+.nbBtn:hover{border-color:var(--accent)}
+.nbBtn:disabled{opacity:.55;cursor:default}
+.nbBtn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.nbBtn.primary:hover{background:var(--accent2)}
+.nbNote{font-size:12.5px;color:var(--warnTx);background:var(--warnBg);border:1px solid var(--warnBd);border-radius:8px;padding:8px 12px}
+.nbSumCard{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-size:14px;line-height:1.6}
+.nbSumCard .bubble p:first-child{margin-top:0}
+.nbSumEmpty{color:var(--muted);font-size:13px}
+.nbCtxLine{font-size:12px;color:var(--muted)}
+.nbChatRow{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:9px 12px;cursor:pointer;transition:border-color .15s ease}
+.nbChatRow:hover{border-color:var(--accent)}
+.nbChatRow .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px}
+.nbChatRow .micon{opacity:1}
+.nbBadge{font-size:10.5px;padding:2px 8px;border-radius:10px;flex-shrink:0;white-space:nowrap}
+.nbBadge.stale{color:var(--amb);border:1px solid var(--ambBd)}
+.nbBadge.fresh{color:var(--muted);border:1px solid var(--border)}
+.nbSecLabel{font-size:10.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.8px;margin-top:8px}
 #chatPane{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
 #messages{flex:1;overflow-y:auto;padding:20px 0}
 .inner{max-width:900px;margin:0 auto;padding:0 16px;display:flex;flex-direction:column;gap:14px}
@@ -304,6 +343,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,.chatItem:focus-
 <div id="main">
   <aside id="sidebar">
     <button id="newChat"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> New chat</button>
+    <button id="newNotebook" title="Create a notebook (groups chats and shares their summary as context)"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 11v6M9 14h6"/></svg> New notebook</button>
     <button id="importBtn" title="Load a saved conversation (.json)"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5M12 3v12"/></svg> Import</button>
     <input type="file" id="importFile" accept=".json,application/json" hidden/>
     <div id="chatList"></div>
@@ -324,10 +364,11 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,.chatItem:focus-
     <button id="scrollBottomBtn" title="Scroll to latest message" aria-label="Scroll to latest message"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg></button>
   </section>
 </div>
+<div id="moveMenu" role="menu"></div>
 <script>
 "use strict";
 const $=s=>document.querySelector(s);
-const LS={settings:'chatty.settings',chats:'chatty.chats',active:'chatty.active',nav:'chatty.nav'};
+const LS={settings:'chatty.settings',chats:'chatty.chats',active:'chatty.active',nav:'chatty.nav',notebooks:'chatty.notebooks',nbOpen:'chatty.nbOpen'};
 
 /* ---------- inline SVG icons (emoji render inconsistently across OSes and can't be styled) ---------- */
 const ICONS={
@@ -342,13 +383,22 @@ const ICONS={
   bot:'<path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H9l-4.5 3.5V18A8.5 8.5 0 1 1 21 11.5z"/><circle cx="8.5" cy="11.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="11.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="16.5" cy="11.5" r="1.1" fill="currentColor" stroke="none"/>',
   send:'<path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/>',
   stop:'<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/>',
-  warn:'<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/>'
+  warn:'<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/>',
+  chevR:'<path d="M9 6l6 6-6 6"/>',
+  folder:'<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  book:'<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>'
 };
 function svg(inner,cls){return '<svg class="i'+(cls?' '+cls:'')+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+inner+'</svg>'}
 
 let settings={baseUrl:'',apiKey:'',model:'',systemPrompt:''};
 let chats=[];
+let notebooks=[];   // {id,title,createdAt,summary,summaryAt,covered:{chatId:msgCount}}
 let activeId=null;
+let activeNotebookId=null;
+let view='chat';    // 'chat' | 'notebook' — what the main pane shows
+let nbOpenSet=new Set(); // notebooks expanded in the sidebar
+let summaryBusy=false;   // a notebook summary generation is in flight
 let models=[];
 let streaming=false,aborter=null;
 
@@ -364,18 +414,24 @@ function load(k,d){try{const v=JSON.parse(localStorage.getItem(k));return v??d}c
 function loadLocalData(){
   settings=load(LS.settings,{baseUrl:'',apiKey:'',model:'',systemPrompt:''});
   chats=load(LS.chats,[]);
+  notebooks=load(LS.notebooks,[]);
+  nbOpenSet=new Set(load(LS.nbOpen,[]));
   activeId=localStorage.getItem(LS.active)||null;
 }
 function lsSave(){
   try{
     localStorage.setItem(LS.settings,JSON.stringify(settings));
     localStorage.setItem(LS.chats,JSON.stringify(chats));
+    localStorage.setItem(LS.notebooks,JSON.stringify(notebooks));
+    localStorage.setItem(LS.nbOpen,JSON.stringify([...nbOpenSet]));
     if(activeId)localStorage.setItem(LS.active,activeId);
   }catch(e){
     showError('Browser storage is full or unavailable \u2014 changes are NOT being saved. Export chats to file (\u2B07 / MD) or delete old ones.');
   }
 }
 function save(){
+  // sidebar expansion state is a per-device UI preference, persisted in both modes
+  try{localStorage.setItem(LS.nbOpen,JSON.stringify([...nbOpenSet]))}catch{}
   if(serverMode){
     dirty=true;
     clearTimeout(saveTimer);
@@ -384,7 +440,7 @@ function save(){
 }
 async function pushData(){
   try{
-    const res=await fetch('api/data',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings,chats,activeId})});
+    const res=await fetch('api/data',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings,chats,notebooks,activeId})});
     if(res.ok){const j=await res.json().catch(()=>({}));serverRev=j.rev??serverRev+1;dirty=false}
     else showError('Could not save to server \u2014 changes are only in this browser tab for now.');
   }
@@ -395,7 +451,9 @@ async function pushData(){
    Unchanged polls are cheap (ETag -> 304, no body). While streaming we skip pulling so an
    in-flight reply is never clobbered; pending local changes are flushed before a pull. */
 async function pollSync(){
-  if(!serverMode||streaming||document.hidden)return;
+  // while a summary call is in flight, a pull would replace the notebook object it
+  // writes its result into -> skip the pull, the next one reconciles
+  if(!serverMode||streaming||summaryBusy||document.hidden)return;
   try{
     const res=await fetch('api/data',{headers:{'If-None-Match':'"'+serverRev+'"'}});
     if(res.status===304||!res.ok)return;
@@ -453,7 +511,9 @@ function applyServerData(j){
   serverRev=j.rev||0;
   const s={baseUrl:j.settings?.baseUrl||'',apiKey:j.settings?.apiKey||'',model:j.settings?.model||'',systemPrompt:j.settings?.systemPrompt||''};
   chats=Array.isArray(j.chats)?j.chats:[];
+  notebooks=Array.isArray(j.notebooks)?j.notebooks:[];
   activeId=j.activeId||null;
+  if(activeNotebookId&&!notebooks.some(n=>n.id===activeNotebookId)){activeNotebookId=null;view='chat'}
   if(JSON.stringify(s)!==JSON.stringify(settings)){settings=s;bindValues()} // don't clobber half-typed settings fields
   renderChatList();renderMessages();updateCtxBar();
 }
@@ -483,6 +543,7 @@ async function logout(){
   try{await fetch('api/logout',{method:'POST'})}catch{}
   serverMode=false;loggedInUser=null;isAdmin=false;models=[];
   serverRev=0;dirty=false;
+  view='chat';activeNotebookId=null; // the local notebooks are unrelated to the server ones
   closeUsersDrop();closeUserDrop();
   $('#usersBox').style.display='none';
   $('#userChip').style.display='none';
@@ -765,9 +826,10 @@ function enhanceCodeBlocks(root){
 
 /* ---------- chats ---------- */
 function activeChat(){return chats.find(c=>c.id===activeId)||null}
-function newChat(){
-  const c={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),title:'New chat',messages:[],createdAt:Date.now()};
-  chats.unshift(c);activeId=c.id;save();renderChatList();renderMessages();
+function newChat(nbId){
+  const c={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),title:'New chat',messages:[],createdAt:Date.now(),
+    notebookId:typeof nbId==='string'?nbId:null};
+  chats.unshift(c);activeId=c.id;view='chat';save();renderChatList();renderMessages();
   return c;
 }
 /* Sidebar date grouping: chats carry createdAt; older ones fall back to the
@@ -791,29 +853,223 @@ function deleteChat(id){
   if(c&&!confirm('Delete chat \u201C'+c.title+'\u201D? This cannot be undone.'))return;
   chats=chats.filter(x=>x.id!==id);
   if(activeId===id)activeId=chats[0]?chats[0].id:null;
-  if(!chats.length){newChat();return}
+  if(!chats.length){if(view==='chat'){newChat();return}}
   save();renderChatList();renderMessages();
+}
+/* ---------- notebooks ----------
+   A notebook is a named group of chats. Its "summary" is one text block (a short
+   paragraph per chat) generated on demand by the model and injected as context
+   into every chat inside that notebook. Staleness is shown, never auto-fixed. */
+function activeNotebook(){return notebooks.find(n=>n.id===activeNotebookId)||null}
+function notebookChats(nbId){return chats.filter(c=>c.notebookId===nbId)}
+function nbTime(n){
+  if(typeof n.createdAt==='number'&&n.createdAt)return n.createdAt;
+  const t=parseInt((n.id||'').slice(0,8),36);
+  return Number.isFinite(t)?t:0;
+}
+function newNotebook(){
+  const n={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),title:'New notebook',
+    createdAt:Date.now(),summary:'',summaryAt:0,covered:{}};
+  notebooks.push(n);nbOpenSet.add(n.id);
+  activeNotebookId=n.id;view='notebook';activeId=null;
+  save();renderChatList();renderMessages();
+  return n;
+}
+function deleteNotebook(id){
+  const n=notebooks.find(x=>x.id===id);if(!n)return;
+  const inner=notebookChats(id);
+  if(!confirm('Delete notebook \u201C'+n.title+'\u201D?'+(inner.length?'\nThe '+inner.length+' chat'+(inner.length===1?'':'s')+' inside stay, they just leave the notebook.':' This cannot be undone.')))return;
+  for(const c of inner)c.notebookId=null;
+  notebooks=notebooks.filter(x=>x.id!==id);
+  nbOpenSet.delete(id);
+  if(activeNotebookId===id){activeNotebookId=null;view='chat';if(!activeChat())activeId=chats[0]?chats[0].id:null}
+  save();renderChatList();renderMessages();
+}
+/* chats whose message count differs from what the summary covers (or that it
+   doesn't cover at all) -> the notebook summary is out of date */
+function notebookStale(nb){
+  let stale=0;
+  for(const c of notebookChats(nb.id)){
+    const cov=nb.covered&&nb.covered[c.id];
+    if(cov!==c.messages.length)stale++;
+  }
+  return stale;
+}
+function moveChatTo(chatId,nbId){
+  const c=chats.find(x=>x.id===chatId);if(!c)return;
+  if((c.notebookId||null)===(nbId||null))return;
+  c.notebookId=nbId||null;
+  save();renderChatList();
+  if(view==='notebook')renderMessages();
+}
+/* "move to notebook" popup menu, anchored at a click/touch point */
+function openMoveMenu(chatId,x,y){
+  const menu=$('#moveMenu');
+  menu.innerHTML='';
+  const head=document.createElement('div');head.className='mvHead';head.textContent='Move to notebook';
+  menu.appendChild(head);
+  const c=chats.find(k=>k.id===chatId);
+  const mk=(label,nbId,icon)=>{
+    const b=document.createElement('button');b.type='button';b.setAttribute('role','menuitem');
+    b.innerHTML=svg(icon)+'<span>'+esc(label)+'</span>';
+    if(((c&&c.notebookId)||null)===(nbId||null))b.classList.add('sel');
+    b.onclick=()=>{moveChatTo(chatId,nbId);closeMoveMenu()};
+    menu.appendChild(b);
+  };
+  mk('No notebook',null,ICONS.x);
+  for(const n of notebooks)mk(n.title,n.id,ICONS.book);
+  const sep=document.createElement('div');sep.className='mvHead';sep.textContent='New notebook';
+  menu.appendChild(sep);
+  const nb=document.createElement('button');nb.type='button';nb.setAttribute('role','menuitem');
+  nb.innerHTML=svg(ICONS.plus)+'<span>New notebook from this chat</span>';
+  nb.onclick=()=>{
+    const n=newNotebook();
+    n.title=c?c.title.slice(0,60):'New notebook';
+    moveChatTo(chatId,n.id);
+    closeMoveMenu();
+  };
+  menu.classList.add('open');
+  const r=menu.getBoundingClientRect();
+  menu.style.left=Math.max(6,Math.min(x,innerWidth-r.width-8))+'px';
+  menu.style.top=Math.max(6,Math.min(y,innerHeight-r.height-8))+'px';
+}
+function closeMoveMenu(){$('#moveMenu').classList.remove('open')}
+document.addEventListener('click',e=>{if(!e.target.closest('#moveMenu'))closeMoveMenu()});
+
+/* ---------- notebook summary generation (manual, one call) ----------
+   Full regeneration from the current chats — no incremental logic, since the
+   user triggers it explicitly. Each chat transcript is truncated oldest-first
+   so the total prompt stays bounded. */
+const NB_SUMMARY_CAP=4000;   // chars stored per notebook summary (server caps at 4000 too)
+const NB_CHAT_CAP=1500;      // est. tokens per chat transcript fed to the summariser
+function nbTranscript(c){
+  const L=[];
+  for(const m of c.messages){
+    if(!m.content)continue;
+    L.push((m.role==='user'?'User: ':'Assistant: ')+m.content);
+  }
+  let s=L.join('\n');
+  const cap=NB_CHAT_CAP*3; // chars/3 estimate, same as estTokens()
+  if(s.length>cap)s='[earlier messages omitted]\n'+s.slice(-cap);
+  return s;
+}
+async function generateNotebookSummary(nb){
+  if(summaryBusy)return;
+  if(!normalizeBase(settings.baseUrl)){showError('Enter a server URL first.');return}
+  if(!settings.model){showError('Pick a model first.');return}
+  const inner=notebookChats(nb.id);
+  if(!inner.length){showError('This notebook has no chats yet.');return}
+  const parts=inner.map(c=>'### Chat: '+c.title+'\n'+nbTranscript(c));
+  const sys='You write compact summaries of a collection of AI conversations for an AI assistant, '+
+    'which will use them as background context when answering future questions in this collection. '+
+    'Be factual and dense. Keep decisions, facts, names, numbers, file paths, code conclusions and open '+
+    'questions. Skip greetings and small talk. Never invent anything that is not in the transcripts.';
+  const user='Summarise this notebook.\n\nNotebook title: '+nb.title+'\n\n'+parts.join('\n\n')+
+    '\n\nFormat: 2-3 lines of overall context first, then one bullet per chat starting with its title. '+
+    'Maximum 250 words in total. Answer in the language the chats are written in.';
+  summaryBusy=true;renderMessages();
+  const abort=new AbortController();
+  const timer=setTimeout(()=>abort.abort(),120000);
+  try{
+    const res=await fetch(normalizeBase(settings.baseUrl)+'/chat/completions',{
+      method:'POST',signal:abort.signal,headers:authHeaders(),
+      body:JSON.stringify({model:settings.model,stream:false,
+        messages:[{role:'system',content:sys},{role:'user',content:user}]})
+    });
+    if(!res.ok){
+      let d='';try{d=(await res.text()).slice(0,300)}catch{}
+      throw new Error('HTTP '+res.status+(d?' \u2014 '+d:''));
+    }
+    const j=await res.json();
+    const txt=j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content;
+    if(!txt||!String(txt).trim())throw new Error('The model returned an empty summary.');
+    nb.summary=String(txt).trim().slice(0,NB_SUMMARY_CAP);
+    nb.summaryAt=Date.now();
+    nb.covered={};
+    for(const c of inner)nb.covered[c.id]=c.messages.length;
+    clearError();
+  }catch(e){
+    showError('Could not update the notebook summary: '+(e.name==='AbortError'?'timed out':e.message));
+  }finally{
+    clearTimeout(timer);
+    summaryBusy=false;
+    save();renderChatList();
+    if(view==='notebook'&&activeNotebook()===nb)renderMessages();
+  }
+}
+
+/* ---------- sidebar ---------- */
+function chatItemEl(c,indent){
+  const d=document.createElement('div');
+  d.className='chatItem'+(c.id===activeId&&view==='chat'?' active':'')+(indent?' inNb':'');
+  const t=document.createElement('span');t.className='title';t.textContent=c.title;
+  const mv=document.createElement('span');mv.className='icon';mv.innerHTML=svg(ICONS.folder);mv.title='Move to notebook';
+  mv.onclick=e=>{
+    e.stopPropagation();
+    const r=mv.getBoundingClientRect();
+    openMoveMenu(c.id,r.left,Math.min(innerHeight-8,r.bottom+4));
+  };
+  const n=document.createElement('span');n.className='icon renIco';n.innerHTML=svg(ICONS.pen);n.title='Rename chat';
+  n.onclick=e=>{e.stopPropagation();startRename(c,d,t)};
+  const s=document.createElement('span');s.className='icon saveIco';s.innerHTML=svg(ICONS.down);s.title='Save chat to file (JSON)';
+  s.onclick=e=>{e.stopPropagation();downloadChat(c)};
+  const mdi=document.createElement('span');mdi.className='icon mdIco';mdi.textContent='MD';mdi.title='Export as Markdown';
+  mdi.onclick=e=>{e.stopPropagation();downloadChatMd(c)};
+  const x=document.createElement('span');x.className='icon del';x.innerHTML=svg(ICONS.x);x.title='Delete chat';
+  x.onclick=e=>{e.stopPropagation();deleteChat(c.id)};
+  d.onclick=()=>{activeId=c.id;view='chat';save();renderChatList();renderMessages()};
+  d.appendChild(t);d.appendChild(mv);d.appendChild(n);d.appendChild(s);d.appendChild(mdi);d.appendChild(x);
+  return d;
+}
+function notebookItemEl(nb){
+  const d=document.createElement('div');
+  d.className='chatItem nbItem'+(view==='notebook'&&nb.id===activeNotebookId?' active':'');
+  const open=nbOpenSet.has(nb.id);
+  const chev=document.createElement('span');chev.className='icon';chev.innerHTML=svg(ICONS.chevR);
+  chev.classList.toggle('open',open);chev.style.display='inline-flex';chev.title=open?'Collapse':'Expand';
+  chev.onclick=e=>{e.stopPropagation();if(nbOpenSet.has(nb.id))nbOpenSet.delete(nb.id);else nbOpenSet.add(nb.id);save();renderChatList()};
+  const t=document.createElement('span');t.className='title';t.textContent=nb.title;
+  const cnt=document.createElement('span');cnt.className='nbCount';
+  const inner=notebookChats(nb.id);
+  cnt.textContent=inner.length?String(inner.length):'';
+  const stale=notebookStale(nb);
+  if(stale&&nb.summary){const dot=document.createElement('span');dot.className='nbDot';dot.title=stale+' chat'+(stale===1?'':'s')+' changed since the summary was updated';d.appendChild(dot)}
+  const ren=document.createElement('span');ren.className='icon renIco';ren.innerHTML=svg(ICONS.pen);ren.title='Rename notebook';
+  ren.onclick=e=>{e.stopPropagation();startRename(nb,d,t)};
+  const nb2=document.createElement('span');nb2.className='icon';nb2.innerHTML=svg(ICONS.plus);nb2.title='New chat in this notebook';
+  nb2.onclick=e=>{e.stopPropagation();nbOpenSet.add(nb.id);newChat(nb.id)};
+  const del=document.createElement('span');del.className='icon del';del.innerHTML=svg(ICONS.x);del.title='Delete notebook';
+  del.onclick=e=>{e.stopPropagation();deleteNotebook(nb.id)};
+  d.onclick=e=>{
+    const r=d.getBoundingClientRect();
+    if(e.clientX<r.left+22){ // the chevron area toggles instead of opening the overview
+      if(nbOpenSet.has(nb.id))nbOpenSet.delete(nb.id);else nbOpenSet.add(nb.id);
+      save();renderChatList();return;
+    }
+    activeNotebookId=nb.id;view='notebook';activeId=null;
+    nbOpenSet.add(nb.id);
+    save();renderChatList();renderMessages();
+  };
+  d.appendChild(chev);d.appendChild(t);d.appendChild(cnt);d.appendChild(ren);d.appendChild(nb2);d.appendChild(del);
+  return d;
 }
 function renderChatList(){
   const el=$('#chatList');el.innerHTML='';
-  const sorted=[...chats].sort((a,b)=>chatTime(b)-chatTime(a));
+  const inNb=new Set(notebooks.map(n=>n.id));
+  const byTime=(a,b)=>chatTime(b)-chatTime(a);
+  /* notebooks first, newest first; their chats nested underneath */
+  for(const nb of [...notebooks].sort((a,b)=>nbTime(b)-nbTime(a))){
+    el.appendChild(notebookItemEl(nb));
+    if(nbOpenSet.has(nb.id)){
+      for(const c of notebookChats(nb.id).sort(byTime))el.appendChild(chatItemEl(c,true));
+    }
+  }
+  /* unfiled chats keep the original date grouping */
   let lastGroup=null;
-  for(const c of sorted){
+  for(const c of chats.filter(c=>!inNb.has(c.notebookId||'')).sort(byTime)){
     const g=groupLabel(chatTime(c));
     if(g!==lastGroup){const h=document.createElement('div');h.className='chatGroup';h.textContent=g;el.appendChild(h);lastGroup=g}
-    const d=document.createElement('div');
-    d.className='chatItem'+(c.id===activeId?' active':'');
-    const t=document.createElement('span');t.className='title';t.textContent=c.title;
-    const n=document.createElement('span');n.className='icon renIco';n.innerHTML=svg(ICONS.pen);n.title='Rename chat';
-    n.onclick=e=>{e.stopPropagation();startRename(c,d,t)};
-    const s=document.createElement('span');s.className='icon saveIco';s.innerHTML=svg(ICONS.down);s.title='Save chat to file (JSON)';
-    s.onclick=e=>{e.stopPropagation();downloadChat(c)};
-    const mdi=document.createElement('span');mdi.className='icon mdIco';mdi.textContent='MD';mdi.title='Export as Markdown';
-    mdi.onclick=e=>{e.stopPropagation();downloadChatMd(c)};
-    const x=document.createElement('span');x.className='icon del';x.innerHTML=svg(ICONS.x);x.title='Delete chat';
-    x.onclick=e=>{e.stopPropagation();deleteChat(c.id)};
-    d.onclick=()=>{activeId=c.id;save();renderChatList();renderMessages()};
-    d.appendChild(t);d.appendChild(n);d.appendChild(s);d.appendChild(mdi);d.appendChild(x);el.appendChild(d);
+    el.appendChild(chatItemEl(c,false));
   }
 }
 
@@ -887,6 +1143,13 @@ function modelCtx(m){
 /* chars/3: a better fit for dense tokenizers (Qwen & co.) than the classic /4 */
 function estTokens(s){return Math.ceil((s||'').length/3)}
 function fmtTok(n){return n>=1000?(n/1000).toFixed(n>=10000?0:1)+'k':''+n}
+/* the notebook summary rides along in every request of a chat inside a notebook */
+function nbSummaryTokens(chat){
+  if(!chat||!chat.notebookId)return 0;
+  const nb=notebooks.find(n=>n.id===chat.notebookId);
+  if(!nb||!nb.summary)return 0;
+  return estTokens('--- Shared context from notebook "'+nb.title+'" ---\n'+nb.summary+'\n---');
+}
 function chatTokens(chat){
   // Prefer the real prompt_tokens reported by the server for the last request,
   // plus a chars/3 estimate for messages added since (e.g. the new reply).
@@ -907,7 +1170,10 @@ function chatTokens(chat){
 function updateCtxBar(){
   const bar=$('#ctxBar'),fill=$('#ctxFill'),label=$('#ctxLabel'),warn=$('#ctxWarn');
   const chat=activeChat();
-  const used=chat?chatTokens(chat):0;
+  // when the server reported real prompt_tokens, the injected notebook summary is
+  // already part of that number — only add it to the estimate-based path
+  const nbTok=(chat&&!(chat.lastUsage&&chat.lastUsage.prompt>0))?nbSummaryTokens(chat):0;
+  const used=(chat?chatTokens(chat):0)+nbTok;
   const real=!!(chat&&chat.lastUsage&&chat.lastUsage.prompt>0);
   const approx=real?'':'\u2248 ';
   label.title=real
@@ -939,6 +1205,14 @@ function updateCtxBar(){
 function buildMessages(chat){
   const out=[];
   if(settings.systemPrompt.trim())out.push({role:'system',content:settings.systemPrompt.trim()});
+  const nb=chat.notebookId?notebooks.find(n=>n.id===chat.notebookId):null;
+  if(nb&&nb.summary){
+    const when=nb.summaryAt?new Date(nb.summaryAt).toLocaleDateString():'unknown date';
+    out.push({role:'system',content:
+      '--- Shared context from notebook "'+nb.title+'" (summary as of '+when+'). '+
+      'It summarises the other conversations in this notebook and may be outdated. '+
+      'Use it as background; the current conversation always takes precedence. ---\n'+nb.summary+'\n---'});
+  }
   for(const m of chat.messages){
     if(!m.content)continue;
     const msg={role:m.role,content:m.content};
@@ -1011,6 +1285,8 @@ function msgEl(m,idx,isLast){
 
 function renderMessages(){
   const inner=$('#msgInner');inner.innerHTML='';
+  if(view==='notebook'){renderNotebookOverview();return}
+  $('#composer').style.display=''
   const chat=activeChat();
   if(!chat||!chat.messages.length){
     const e=document.createElement('div');e.className='empty';
@@ -1037,6 +1313,114 @@ function renderMessages(){
   scrollBottom(true);
   updateCtxBar();
 }
+/* ---------- notebook overview (main pane when a notebook is clicked) ---------- */
+function renderNotebookOverview(){
+  const nb=activeNotebook();
+  $('#composer').style.display='none';
+  const inner=$('#msgInner');
+  if(!nb){
+    const e=document.createElement('div');e.className='empty';
+    e.textContent='This notebook no longer exists.';
+    inner.appendChild(e);updateCtxBar();return;
+  }
+  const wrap=document.createElement('div');wrap.className='nbOverview';
+
+  const head=document.createElement('div');head.className='nbHead';
+  const ic=document.createElement('span');ic.style.cssText='display:inline-flex;color:var(--accent)';
+  ic.innerHTML='<svg class="i" style="width:22px;height:22px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+ICONS.book+'</svg>';
+  const h2=document.createElement('h2');h2.textContent=nb.title;
+  head.appendChild(ic);head.appendChild(h2);
+  const meta=document.createElement('span');meta.className='nbMeta';
+  const inner_=notebookChats(nb.id);
+  meta.textContent=inner_.length+' chat'+(inner_.length===1?'':'s')+' \u00B7 created '+new Date(nbTime(nb)||Date.now()).toLocaleDateString();
+  head.appendChild(meta);
+  wrap.appendChild(head);
+
+  const actions=document.createElement('div');actions.className='nbActions';
+  const upd=document.createElement('button');upd.type='button';upd.className='nbBtn primary';
+  const stale=notebookStale(nb);
+  if(summaryBusy){
+    upd.innerHTML=svg(ICONS.refresh)+'<span>Updating\u2026</span>';upd.disabled=true;
+  }else{
+    upd.innerHTML=svg(ICONS.refresh)+'<span>'+(nb.summary?'Update summary':'Generate summary')+'</span>';
+    upd.disabled=!inner_.length;
+    upd.title=inner_.length?'One model call: rebuilds the summary from all chats in this notebook':'Add a chat to this notebook first';
+    upd.onclick=()=>generateNotebookSummary(nb);
+  }
+  actions.appendChild(upd);
+  const add=document.createElement('button');add.type='button';add.className='nbBtn';
+  add.innerHTML=svg(ICONS.plus)+'<span>New chat in notebook</span>';
+  add.onclick=()=>{nbOpenSet.add(nb.id);newChat(nb.id)};
+  actions.appendChild(add);
+  const ren=document.createElement('button');ren.type='button';ren.className='nbBtn';
+  ren.textContent='Rename';
+  ren.onclick=()=>{
+    const t=prompt('Notebook name:',nb.title);
+    if(t&&t.trim()){nb.title=t.trim();save();renderChatList();renderMessages()}
+  };
+  actions.appendChild(ren);
+  wrap.appendChild(actions);
+
+  if(stale&&nb.summary){
+    const n=document.createElement('div');n.className='nbNote';
+    n.innerHTML=svg(ICONS.warn)+' '+esc(stale+' chat'+(stale===1?' has':'s have')+' changed since this summary was updated. The chats below still get the current summary as context \u2014 click \u201CUpdate summary\u201D to refresh it.');
+    wrap.appendChild(n);
+  }
+
+  const sumLabel=document.createElement('div');sumLabel.className='nbSecLabel';
+  sumLabel.textContent=nb.summary?'Notebook summary':'Notebook summary (none yet)';
+  wrap.appendChild(sumLabel);
+  const card=document.createElement('div');card.className='nbSumCard';
+  if(nb.summary){
+    card.innerHTML=md(nb.summary);
+    enhanceCodeBlocks(card);
+  }else{
+    const p=document.createElement('div');p.className='nbSumEmpty';
+    p.textContent='Every chat in this notebook gets this summary as extra context. Generate it once the notebook has a few chats \u2014 and again whenever the badge says it is out of date.';
+    card.appendChild(p);
+  }
+  wrap.appendChild(card);
+
+  if(nb.summary){
+    const line=document.createElement('div');line.className='nbCtxLine';
+    line.textContent='\u2248 '+fmtTok(estTokens(nb.summary))+' tokens are added to every message in this notebook'+
+      (nb.summaryAt?' \u00B7 updated '+new Date(nb.summaryAt).toLocaleDateString()+', '+new Date(nb.summaryAt).toLocaleTimeString():'');
+    wrap.appendChild(line);
+  }
+
+  const chatLabel=document.createElement('div');chatLabel.className='nbSecLabel';
+  chatLabel.textContent='Chats in this notebook';
+  wrap.appendChild(chatLabel);
+  if(!inner_.length){
+    const p=document.createElement('div');p.className='nbSumEmpty';
+    p.textContent='No chats yet. Create one, or move an existing chat here with the folder icon in the chat list.';
+    wrap.appendChild(p);
+  }
+  for(const c of inner_.sort((a,b)=>chatTime(b)-chatTime(a))){
+    const row=document.createElement('div');row.className='nbChatRow';
+    const t=document.createElement('span');t.className='t';t.textContent=c.title;
+    row.appendChild(t);
+    const cov=nb.covered&&nb.covered[c.id];
+    const badge=document.createElement('span');
+    if(!nb.summary){badge.className='nbBadge fresh';badge.textContent=c.messages.length+' msg'}
+    else if(cov===undefined){badge.className='nbBadge stale';badge.textContent='not in summary'}
+    else if(cov!==c.messages.length){badge.className='nbBadge stale';badge.textContent='changed since summary'}
+    else{badge.className='nbBadge fresh';badge.textContent='in summary'}
+    row.appendChild(badge);
+    const mv=document.createElement('button');mv.type='button';mv.className='micon';mv.title='Move to another notebook';
+    mv.innerHTML=svg(ICONS.folder);
+    mv.onclick=e=>{
+      e.stopPropagation();
+      const r=mv.getBoundingClientRect();
+      openMoveMenu(c.id,r.left,Math.min(innerHeight-8,r.bottom+4));
+    };
+    row.appendChild(mv);
+    row.onclick=()=>{activeId=c.id;view='chat';save();renderChatList();renderMessages()};
+    wrap.appendChild(row);
+  }
+  inner.appendChild(wrap);
+  updateCtxBar();
+}
 function nearBottom(){const el=$('#messages');return el.scrollHeight-el.scrollTop-el.clientHeight<140}
 function scrollBottom(force){
   const el=$('#messages');
@@ -1060,7 +1444,7 @@ function clearError(){$('#errorBar').style.display='none'}
 
 async function send(){
   const text=$('#input').value.trim();
-  if(!text||streaming)return;
+  if(!text||streaming||view==='notebook')return;
   if(!normalizeBase(settings.baseUrl)){showError('Enter a server URL first.');return}
   clearError();
   const chat=activeChat()||newChat();
@@ -1085,8 +1469,9 @@ function branchAt(index){
   const src=activeChat();if(!src||index<1||index>=src.messages.length)return;
   const c={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),
     title:src.title+' (branch)',
+    notebookId:src.notebookId||null, // a branch stays in the same notebook (uncovered -> flagged stale)
     messages:src.messages.slice(0,index).map(m=>({role:m.role,content:m.content,reasoning:m.reasoning||'',error:m.error||''}))};
-  chats.unshift(c);activeId=c.id;save();renderChatList();renderMessages();
+  chats.unshift(c);activeId=c.id;view='chat';save();renderChatList();renderMessages();
 }
 
 async function generate(chat){
@@ -1329,6 +1714,7 @@ st.onclick=toggleStatusText;
 st.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleStatusText()}};}
 
 $('#newChat').onclick=()=>{if(!streaming)newChat()};
+$('#newNotebook').onclick=()=>{if(!streaming)newNotebook()};
 $('#importBtn').onclick=()=>$('#importFile').click();
 $('#importFile').addEventListener('change',e=>{
   const f=e.target.files[0];
@@ -1360,10 +1746,11 @@ $('#logoutBtn').onclick=()=>logout();
 window.addEventListener('beforeunload',()=>{
   // only flush genuinely pending changes — an unconditional beacon on every page close
   // bumps the server rev and can clobber what another device wrote in the meantime
-  if(serverMode&&dirty){try{navigator.sendBeacon('api/data',new Blob([JSON.stringify({settings,chats,activeId})],{type:'application/json'}))}catch{}}
+  if(serverMode&&dirty){try{navigator.sendBeacon('api/data',new Blob([JSON.stringify({settings,chats,notebooks,activeId})],{type:'application/json'}))}catch{}}
 });
 (async()=>{
   await initAuth();
+  try{const o=JSON.parse(localStorage.getItem(LS.nbOpen));if(Array.isArray(o))nbOpenSet=new Set(o)}catch{}
   bindValues();
   if(!chats.length)newChat();
   else if(!activeChat())activeId=chats[0].id;

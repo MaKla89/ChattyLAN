@@ -320,11 +320,22 @@ const server=http.createServer(async(req,res)=>{
           id:String(c&&c.id||'').slice(0,64),
           title:String((c&&c.title)||'Chat').slice(0,200),
           createdAt:Number.isFinite(c&&c.createdAt)?c.createdAt:0,
+          notebookId:typeof c?.notebookId==='string'?c.notebookId.slice(0,64):null,
           messages:Array.isArray(c&&c.messages)?c.messages.slice(0,2000).map(m=>({
             role:m&&m.role==='user'?'user':'assistant',
             content:m&&typeof m.content==='string'?m.content:'',
             reasoning:m&&typeof m.reasoning==='string'?m.reasoning:''
           })):[],
+        })):[],
+        notebooks:Array.isArray(j.notebooks)?j.notebooks.slice(0,50).map(n=>({
+          id:String(n&&n.id||'').slice(0,64),
+          title:String((n&&n.title)||'Notebook').slice(0,200),
+          createdAt:Number.isFinite(n&&n.createdAt)?n.createdAt:0,
+          summary:typeof n?.summary==='string'?n.summary.slice(0,4000):'',
+          summaryAt:Number.isFinite(n&&n.summaryAt)?n.summaryAt:0,
+          covered:n&&typeof n.covered==='object'&&n.covered&&!Array.isArray(n.covered)
+            ?Object.fromEntries(Object.entries(n.covered).filter(([k,v])=>k.length<=64&&Number.isFinite(v)).slice(0,500))
+            :{}
         })):[],
         activeId:typeof j.activeId==='string'?j.activeId:null
       };
