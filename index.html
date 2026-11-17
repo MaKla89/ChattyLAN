@@ -944,13 +944,16 @@ document.addEventListener('click',e=>{if(!e.target.closest('#moveMenu'))closeMov
    Full regeneration from the current chats — no incremental logic, since the
    user triggers it explicitly. Each chat transcript is truncated oldest-first
    so the total prompt stays bounded. */
-const NB_SUMMARY_CAP=8000;   // hard ceiling on stored summary chars (server caps at 8000 too)
+const NB_SUMMARY_CAP=32000;  // hard ceiling on stored summary chars (server caps at 32000 too)
 /* Per-notebook detail level: scales the word budget in the prompt, how much of each
-   chat transcript is fed in, and the storage cap. "standard" matches the old default. */
+   chat transcript is fed in, and the storage cap. All three scale together (~16 chars
+   of summary and ~6 tokens of source per word) so a longer summary also gets the source
+   material and storage it needs. "standard" is the default. */
 const NB_DETAIL={
-  brief:   {label:'Brief',    words:250,  chatTok:800,  cap:2500},
-  standard:{label:'Standard', words:500,  chatTok:1500, cap:4000},
-  detailed:{label:'Detailed', words:1000, chatTok:3000, cap:8000}
+  brief:       {label:'Brief',         words:250,  chatTok:1500,  cap:4000},
+  standard:    {label:'Standard',      words:500,  chatTok:3000,  cap:8000},
+  detailed:    {label:'Detailed',      words:1000, chatTok:6000,  cap:16000},
+  verydetailed:{label:'Very detailed', words:2000, chatTok:12000, cap:32000}
 };
 function nbDetail(nb){return NB_DETAIL[nb&&nb.detail]||NB_DETAIL.standard}
 function nbTranscript(c,chatTok){
@@ -1379,7 +1382,7 @@ function renderNotebookOverview(){
   const ctl=document.createElement('div');ctl.className='nbCtl';
   const ctlLabel=document.createElement('label');ctlLabel.textContent='Summary detail';ctlLabel.htmlFor='nbDetailSel';
   const sel=document.createElement('select');sel.id='nbDetailSel';
-  for(const key of ['brief','standard','detailed']){
+  for(const key of ['brief','standard','detailed','verydetailed']){
     const o=document.createElement('option');o.value=key;o.textContent=NB_DETAIL[key].label;
     o.selected=(nb.detail||'standard')===key;
     sel.appendChild(o);

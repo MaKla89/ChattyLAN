@@ -331,7 +331,7 @@ const server=http.createServer(async(req,res)=>{
           id:String(n&&n.id||'').slice(0,64),
           title:String((n&&n.title)||'Notebook').slice(0,200),
           createdAt:Number.isFinite(n&&n.createdAt)?n.createdAt:0,
-          summary:typeof n?.summary==='string'?n.summary.slice(0,8000):'',
+          summary:typeof n?.summary==='string'?n.summary.slice(0,32000):'',
           detail:typeof n?.detail==='string'?n.detail.slice(0,16):'standard',
           summaryDetail:typeof n?.summaryDetail==='string'?n.summaryDetail.slice(0,16):'',
           summaryAt:Number.isFinite(n&&n.summaryAt)?n.summaryAt:0,
