@@ -403,6 +403,9 @@ let activeNotebookId=null;
 let view='chat';    // 'chat' | 'notebook' — what the main pane shows
 let nbOpenSet=new Set(); // notebooks expanded in the sidebar
 let summaryBusy=false;   // a notebook summary generation is in flight
+let summaryBusyNbId=null; // which notebook it belongs to
+let summaryStream='';    // text accumulated during the in-flight generation
+let summaryLiveEl=null;  // the overview card to paint the streaming text into
 let models=[];
 let streaming=false,aborter=null;
 
@@ -982,33 +985,63 @@ async function generateNotebookSummary(nb){
   const user='Summarise this notebook.\n\nNotebook title: '+nb.title+'\n\n'+parts.join('\n\n')+
     '\n\nFormat: 2-3 lines of overall context first, then one bullet per chat starting with its title. '+
     'Maximum '+det.words+' words in total. Answer in the language the chats are written in.';
-  summaryBusy=true;renderMessages();
+  summaryBusy=true;summaryBusyNbId=nb.id;summaryStream='';summaryLiveEl=null;
+  renderMessages(); // overview shows "Writing the summary\u2026" and receives the live card
   const abort=new AbortController();
-  const timer=setTimeout(()=>abort.abort(),120000);
+  /* idle-based timeout instead of a wall-clock cap: local models can need minutes of
+     prefill before the FIRST token arrives (generous window), but once tokens flow,
+     60s of silence means the backend is gone. Every network chunk re-arms it. */
+  let idleTimer=null;
+  const armIdle=ms=>{clearTimeout(idleTimer);idleTimer=setTimeout(()=>abort.abort(),ms)};
+  armIdle(180000);
+  let rafId=0;
+  const paint=()=>{
+    if(rafId||!summaryLiveEl)return;
+    rafId=requestAnimationFrame(()=>{rafId=0;summaryLiveEl.innerHTML=md(summaryStream)});
+  };
   try{
     const res=await fetch(normalizeBase(settings.baseUrl)+'/chat/completions',{
       method:'POST',signal:abort.signal,headers:authHeaders(),
-      body:JSON.stringify({model:settings.model,stream:false,
+      body:JSON.stringify({model:settings.model,stream:true,
         messages:[{role:'system',content:sys},{role:'user',content:user}]})
     });
     if(!res.ok){
       let d='';try{d=(await res.text()).slice(0,300)}catch{}
       throw new Error('HTTP '+res.status+(d?' \u2014 '+d:''));
     }
-    const j=await res.json();
-    const txt=j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content;
-    if(!txt||!String(txt).trim())throw new Error('The model returned an empty summary.');
-    nb.summary=String(txt).trim().slice(0,Math.min(NB_SUMMARY_CAP,det.cap));
+    const reader=res.body.getReader();
+    const dec=new TextDecoder();
+    let buf='';
+    while(true){
+      const {done,value}=await reader.read();
+      if(done)break;
+      armIdle(60000);
+      buf+=dec.decode(value,{stream:true});
+      let i;
+      while((i=buf.indexOf('\n'))>=0){
+        const line=buf.slice(0,i).trim();
+        buf=buf.slice(i+1);
+        if(!line.startsWith('data:'))continue;
+        const data=line.slice(5).trim();
+        if(data==='[DONE]')continue;
+        let j;try{j=JSON.parse(data)}catch{continue}
+        const delta=(j.choices&&j.choices[0]&&j.choices[0].delta)||{};
+        if(delta.content){summaryStream+=delta.content;paint()}
+      }
+    }
+    if(!summaryStream.trim())throw new Error('The model returned an empty summary.');
+    nb.summary=summaryStream.trim().slice(0,Math.min(NB_SUMMARY_CAP,det.cap));
     nb.summaryDetail=det.label;
     nb.summaryAt=Date.now();
     nb.covered={};
     for(const c of inner)nb.covered[c.id]=c.messages.length;
     clearError();
   }catch(e){
-    showError('Could not update the notebook summary: '+(e.name==='AbortError'?'timed out':e.message));
+    showError('Could not update the notebook summary: '+(e.name==='AbortError'?'no model response \u2014 timed out while waiting. The model may still be loading or the transcripts too long for its context. The previous summary is kept.':e.message));
   }finally{
-    clearTimeout(timer);
-    summaryBusy=false;
+    clearTimeout(idleTimer);
+    if(rafId)cancelAnimationFrame(rafId);
+    summaryBusy=false;summaryBusyNbId=null;summaryStream='';summaryLiveEl=null;
     save();renderChatList();
     if(view==='notebook'&&activeNotebook()===nb)renderMessages();
   }
@@ -1412,7 +1445,12 @@ function renderNotebookOverview(){
   sumLabel.textContent=nb.summary?'Notebook summary':'Notebook summary (none yet)';
   wrap.appendChild(sumLabel);
   const card=document.createElement('div');card.className='nbSumCard';
-  if(nb.summary){
+  if(summaryBusy&&nb.id===summaryBusyNbId){
+    // live target for the streaming summary — paint() writes md(summaryStream) here
+    summaryLiveEl=card;
+    if(summaryStream)card.innerHTML=md(summaryStream);
+    else{const p=document.createElement('div');p.className='nbSumEmpty';p.textContent='Writing the summary\u2026 it appears here as it is generated.';card.appendChild(p)}
+  }else if(nb.summary){
     card.innerHTML=md(nb.summary);
     enhanceCodeBlocks(card);
   }else{
